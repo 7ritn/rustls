@@ -47,8 +47,8 @@ use crate::tls13::{
 };
 use crate::verify::{self, DigitallySignedStruct};
 use crate::{ConnectionTrafficSecrets, KeyLog, compress, crypto};
-use crate::fido::helper::validate_server_name;
-use crate::fido::messages::{FidoRequest, FidoResponse};
+use rustls_fido::helper::validate_server_name;
+use rustls_fido::messages::{FidoRequest, FidoResponse};
 
 // Extensions we expect in plaintext in the ServerHello.
 static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[

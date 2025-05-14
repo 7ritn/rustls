@@ -6,7 +6,7 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use super::{ResolvesServerCert, ServerConfig, handy};
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::error::Error;
-use crate::fido::state::FidoServer;
+use rustls_fido::state::FidoServer;
 use crate::lock::Mutex;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;

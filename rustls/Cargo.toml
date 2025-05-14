@@ -44,6 +44,7 @@ log = { workspace = true, optional = true }
 # only required for no-std
 once_cell = { workspace = true }
 ring = { workspace = true, optional = true }
+rustls-fido = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_tuple = { workspace = true }

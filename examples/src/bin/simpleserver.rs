@@ -16,8 +16,8 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
 use rustls_pemfile::certs;
-use rustls::fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
-use rustls::fido::state::FidoServer;
+use rustls_fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
+use rustls_fido::state::FidoServer;
 use rustls::server::WebPkiClientVerifier;
 
 fn load_ca_certs() -> RootCertStore {

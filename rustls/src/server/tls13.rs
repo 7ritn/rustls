@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
+use std::println;
 pub(super) use client_hello::CompleteClientHelloHandling;
 use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
@@ -14,8 +15,8 @@ use crate::conn::ConnectionRandoms;
 use crate::conn::kernel::{Direction, KernelContext, KernelState};
 use crate::enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, InvalidMessage, PeerIncompatible, PeerMisbehaved};
-use crate::fido::enums::FidoHandshakeState;
-use crate::fido::messages::FidoResponse;
+use rustls_fido::enums::FidoHandshakeState;
+use rustls_fido::messages::FidoResponse;
 use crate::hash_hs::HandshakeHash;
 use crate::log::{debug, trace, warn};
 use crate::msgs::codec::{Codec, Reader};
@@ -42,7 +43,7 @@ mod client_hello {
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
-    use crate::fido::messages::{FidoIndication, FidoRequest};
+    use rustls_fido::messages::{FidoIndication, FidoRequest};
     use crate::msgs::base::{Payload, PayloadU8};
     use crate::msgs::ccs::ChangeCipherSpecPayload;
     use crate::msgs::enums::{Compression, NamedGroup, PskKeyExchangeMode};
@@ -1126,7 +1127,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         if let Some(fido) = &Arc::<ServerConfig>::clone(&self.config).fido {
             let mut fido = fido.lock().expect("lock FidoServer");
-            let mandatory = fido.mandatory;
+            let mandatory = fido.is_mandatory();
 
             if self.fido_handshake_state.is_some() && certp.fido_extension().is_some() {
                 let fido_response = certp.fido_extension().expect("fido extension");
@@ -1134,11 +1135,12 @@ impl State<ServerConnectionData> for ExpectCertificate {
                 match fido_response {
                     FidoResponse::Authentication(fido_authentication_response) => {
                         if let Some(FidoHandshakeState::SAS(sas)) = self.fido_handshake_state {
+                            println!("Authenticating user");
                             if let Err(e) = fido.finish_authentication_fido(
                                 fido_authentication_response.clone(),
                                 sas
                             ) {
-                                if mandatory { return Err(e) }
+                                if mandatory { return Err(e.into()) }
                             }
                         } else if mandatory { return Err(Error::General("fido: SAS missing".into())) };
                     },
@@ -1150,7 +1152,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
                             fido_pre_registration_response.user_name.clone(),
                             fido_pre_registration_response.user_display_name.clone()
                         ) {
-                            if mandatory { return Err(e) }
+                            if mandatory { return Err(e.into()) }
                         }
                     } else if mandatory { return Err(Error::General("fido: ephem user id missing".into())) }
                 },
@@ -1162,7 +1164,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
                                 fido_registration_response.client_data_json.clone(),
                                 fido_registration_response.attestation_object.clone()
                             ) {
-                                if mandatory { return Err(e) }
+                                if mandatory { return Err(e.into()) }
                             };
                         } else if mandatory { return Err(Error::General("fido: user id missing".into())) }
                     },

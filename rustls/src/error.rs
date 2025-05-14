@@ -2,6 +2,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
+use std::prelude::rust_2024::ToString;
 #[cfg(feature = "std")]
 use std::time::SystemTimeError;
 
@@ -889,6 +890,10 @@ impl From<rand::GetRandomFailed> for Error {
     fn from(_: rand::GetRandomFailed) -> Self {
         Self::FailedToGetRandomBytes
     }
+}
+
+impl From<rustls_fido::error::Error> for Error {
+    fn from(value: rustls_fido::error::Error) -> Self { Self::General(value.to_string()) }
 }
 
 mod other_error {

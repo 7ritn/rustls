@@ -2832,6 +2832,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rusqlite",
+ "rustls-fido",
  "rustls-pki-types",
  "rustls-webpki",
  "rustversion",
@@ -2915,12 +2916,36 @@ dependencies = [
  "mio",
  "rcgen",
  "rustls 0.23.27",
+ "rustls-fido",
  "rustls-pemfile",
  "serde",
  "serde_cbor",
  "serde_tuple",
  "tokio",
  "webpki-roots 0.26.11",
+]
+
+[[package]]
+name = "rustls-fido"
+version = "0.1.0"
+dependencies = [
+ "authenticator",
+ "aws-lc-rs",
+ "base64 0.22.1",
+ "env_logger",
+ "log",
+ "rusqlite",
+ "rustls-pki-types",
+ "serde",
+ "serde_bytes",
+ "serde_cbor",
+ "serde_json",
+ "serde_repr",
+ "serde_tuple",
+ "thiserror 2.0.12",
+ "webauthn-rs",
+ "webauthn-rs-proto",
+ "x509-parser 0.17.0",
 ]
 
 [[package]]

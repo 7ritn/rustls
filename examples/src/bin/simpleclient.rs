@@ -11,7 +11,7 @@
 use std::fs::File;
 use std::io::{stdout, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 use log::info;
@@ -19,9 +19,8 @@ use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ClientConnection, RootCertStore, Stream};
 use rustls_pemfile::certs;
-use rustls::fido::enums::FidoMode;
-use rustls::fido::state::FidoClient;
-use rustls::lock::Mutex;
+use rustls_fido::enums::FidoMode;
+use rustls_fido::state::FidoClient;
 // This is the function you're missing
 
 fn main() {

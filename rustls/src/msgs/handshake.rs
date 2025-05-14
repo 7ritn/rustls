@@ -18,7 +18,7 @@ use crate::enums::{
 use crate::error::InvalidMessage;
 #[cfg(feature = "tls12")]
 use crate::ffdhe_groups::FfdheGroup;
-use crate::fido::messages::{FidoIndication, FidoRequest, FidoResponse};
+use rustls_fido::messages::{FidoIndication, FidoRequest, FidoResponse};
 use crate::log::warn;
 use crate::msgs::base::{MaybeEmpty, NonEmpty, Payload, PayloadU8, PayloadU16, PayloadU24};
 use crate::msgs::codec::{self, Codec, LengthPrefixedBuffer, ListLength, Reader, TlsListElement};

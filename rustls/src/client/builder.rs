@@ -7,14 +7,14 @@ use super::client_conn::Resumption;
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::client::{ClientConfig, EchMode, ResolvesClientCert, handy};
 use crate::error::Error;
-use crate::fido::state::FidoClient;
+use rustls_fido::state::FidoClient;
 use crate::key_log::NoKeyLog;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;
 use crate::versions::TLS13;
 use crate::webpki::{self, WebPkiServerVerifier};
 use crate::{WantsVersions, compress, verify, versions};
-use crate::fido::enums::FidoMode;
+use rustls_fido::enums::FidoMode;
 
 impl ConfigBuilder<ClientConfig, WantsVersions> {
     /// Enable Encrypted Client Hello (ECH) in the given mode.
