@@ -203,6 +203,7 @@ mod server {
 
         ServerConfig::builder_with_protocol_versions(&[&TLS13])
             .with_client_cert_verifier(client_cert_verifier)
+            .with_no_fido()
             .with_cert_resolver(server_cert_resolver)
     }
 
@@ -405,6 +406,7 @@ mod tests {
         let private_key = PrivateKeyDer::from_pem_file(private_key_file).unwrap();
         let config = rustls::ServerConfig::builder()
             .with_no_client_auth()
+            .with_no_fido()
             .with_single_cert(certs, private_key)
             .unwrap();
         let server_thread = thread::spawn(move || {

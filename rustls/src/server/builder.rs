@@ -6,6 +6,8 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use super::{ResolvesServerCert, ServerConfig, handy};
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::error::Error;
+use crate::fido::state::FidoServer;
+use crate::lock::Mutex;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;
 use crate::verify::{ClientCertVerifier, NoClientAuth};
@@ -16,9 +18,9 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
     pub fn with_client_cert_verifier(
         self,
         client_cert_verifier: Arc<dyn ClientCertVerifier>,
-    ) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+    ) -> ConfigBuilder<ServerConfig, WantsFido> {
         ConfigBuilder {
-            state: WantsServerCert {
+            state: WantsFido {
                 versions: self.state.versions,
                 verifier: client_cert_verifier,
             },
@@ -29,8 +31,51 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
     }
 
     /// Disable client authentication.
-    pub fn with_no_client_auth(self) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+    pub fn with_no_client_auth(self) -> ConfigBuilder<ServerConfig, WantsFido> {
         self.with_client_cert_verifier(Arc::new(NoClientAuth))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WantsFido {
+    versions: versions::EnabledVersions,
+    verifier: Arc<dyn ClientCertVerifier>
+}
+
+impl ConfigBuilder<ServerConfig, WantsFido> {
+    /// Use FIDO
+    pub fn with_fido(
+        self,
+        config: FidoServer
+    ) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+        let fido = Arc::new(Mutex::new(config));
+
+        ConfigBuilder {
+            state: WantsServerCert {
+                versions: self.state.versions,
+                verifier: self.state.verifier,
+                fido: Some(fido)
+
+            },
+            provider: self.provider,
+            time_provider: self.time_provider,
+            side: PhantomData,
+        }
+    }
+
+    /// Disable client authentication.
+    pub fn with_no_fido(self) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+        ConfigBuilder {
+            state: WantsServerCert {
+                versions: self.state.versions,
+                verifier: self.state.verifier,
+                fido: None
+
+            },
+            provider: self.provider,
+            time_provider: self.time_provider,
+            side: PhantomData,
+        }
     }
 }
 
@@ -42,6 +87,7 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
 pub struct WantsServerCert {
     versions: versions::EnabledVersions,
     verifier: Arc<dyn ClientCertVerifier>,
+    fido: Option<Arc<Mutex<FidoServer>>>
 }
 
 impl ConfigBuilder<ServerConfig, WantsServerCert> {
@@ -68,6 +114,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         key_der: PrivateKeyDer<'static>,
     ) -> Result<ServerConfig, Error> {
         let certified_key = CertifiedKey::from_der(cert_chain, key_der, self.crypto_provider())?;
+
         Ok(self.with_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key))))
     }
 
@@ -98,6 +145,8 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
 
     /// Sets a custom [`ResolvesServerCert`].
     pub fn with_cert_resolver(self, cert_resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
+
+        
         ServerConfig {
             provider: self.provider,
             verifier: self.state.verifier,
@@ -122,6 +171,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             cert_compressors: compress::default_cert_compressors().to_vec(),
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
+            fido: self.state.fido
         }
     }
 }

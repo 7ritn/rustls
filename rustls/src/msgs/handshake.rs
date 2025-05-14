@@ -5,7 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::{fmt, iter};
-
+use log::debug;
 use pki_types::{CertificateDer, DnsName};
 
 #[cfg(feature = "tls12")]
@@ -18,6 +18,7 @@ use crate::enums::{
 use crate::error::InvalidMessage;
 #[cfg(feature = "tls12")]
 use crate::ffdhe_groups::FfdheGroup;
+use crate::fido::messages::{FidoIndication, FidoRequest, FidoResponse};
 use crate::log::warn;
 use crate::msgs::base::{MaybeEmpty, NonEmpty, Payload, PayloadU8, PayloadU16, PayloadU24};
 use crate::msgs::codec::{self, Codec, LengthPrefixedBuffer, ListLength, Reader, TlsListElement};
@@ -715,6 +716,7 @@ pub enum ClientExtension {
     EncryptedClientHello(EncryptedClientHello),
     EncryptedClientHelloOuterExtensions(Vec<ExtensionType>),
     AuthorityNames(Vec<DistinguishedName>),
+    FidoIndication(FidoIndication),
     Unknown(UnknownExtension),
 }
 
@@ -745,6 +747,7 @@ impl ClientExtension {
                 ExtensionType::EncryptedClientHelloOuterExtensions
             }
             Self::AuthorityNames(_) => ExtensionType::CertificateAuthorities,
+            Self::FidoIndication(_) => ExtensionType::Fido,
             Self::Unknown(r) => r.typ,
         }
     }
@@ -780,6 +783,7 @@ impl Codec<'_> for ClientExtension {
             Self::EncryptedClientHello(r) => r.encode(nested.buf),
             Self::EncryptedClientHelloOuterExtensions(r) => r.encode(nested.buf),
             Self::AuthorityNames(r) => r.encode(nested.buf),
+            Self::FidoIndication(r) => r.encode(nested.buf),
             Self::Unknown(r) => r.encode(nested.buf),
         }
     }
@@ -839,6 +843,7 @@ impl Codec<'_> for ClientExtension {
                 }
                 items
             }),
+            ExtensionType::Fido => Self::FidoIndication(FidoIndication::read(&mut sub)?),
             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
         };
 
@@ -1288,6 +1293,14 @@ impl ClientHelloPayload {
         }
     }
 
+    pub(crate) fn fido_indicated(&self) -> Option<FidoIndication> {
+        let ext = self.find_extension(ExtensionType::Fido)?;
+        match ext {
+            ClientExtension::FidoIndication(indication) => Some(indication.clone()),
+            _ => None,
+        }
+    }
+
     pub(crate) fn has_certificate_compression_extension_with_duplicates(&self) -> bool {
         if let Some(algs) = self.certificate_compression_extension() {
             has_duplicates::<_, _, u16>(algs.iter().cloned())
@@ -1648,6 +1661,7 @@ pub(crate) const CERTIFICATE_MAX_SIZE_LIMIT: usize = 0x1_0000;
 #[derive(Debug)]
 pub(crate) enum CertificateExtension<'a> {
     CertificateStatus(CertificateStatus<'a>),
+    FidoResponse(FidoResponse),
     Unknown(UnknownExtension),
 }
 
@@ -1655,6 +1669,7 @@ impl CertificateExtension<'_> {
     pub(crate) fn ext_type(&self) -> ExtensionType {
         match self {
             Self::CertificateStatus(_) => ExtensionType::StatusRequest,
+            Self::FidoResponse(_) => ExtensionType::Fido,
             Self::Unknown(r) => r.typ,
         }
     }
@@ -1669,6 +1684,7 @@ impl CertificateExtension<'_> {
     pub(crate) fn into_owned(self) -> CertificateExtension<'static> {
         match self {
             Self::CertificateStatus(st) => CertificateExtension::CertificateStatus(st.into_owned()),
+            Self::FidoResponse(st) => CertificateExtension::FidoResponse(st),
             Self::Unknown(unk) => CertificateExtension::Unknown(unk),
         }
     }
@@ -1681,6 +1697,7 @@ impl<'a> Codec<'a> for CertificateExtension<'a> {
         let nested = LengthPrefixedBuffer::new(ListLength::U16, bytes);
         match self {
             Self::CertificateStatus(r) => r.encode(nested.buf),
+            Self::FidoResponse(r) => r.encode(nested.buf),
             Self::Unknown(r) => r.encode(nested.buf),
         }
     }
@@ -1695,6 +1712,7 @@ impl<'a> Codec<'a> for CertificateExtension<'a> {
                 let st = CertificateStatus::read(&mut sub)?;
                 Self::CertificateStatus(st)
             }
+            ExtensionType::Fido => Self::FidoResponse(FidoResponse::read(&mut sub)?),
             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
         };
 
@@ -1757,7 +1775,7 @@ impl<'a> CertificateEntry<'a> {
     pub(crate) fn has_unknown_extension(&self) -> bool {
         self.exts
             .iter()
-            .any(|ext| ext.ext_type() != ExtensionType::StatusRequest)
+            .any(|ext| ![ExtensionType::StatusRequest, ExtensionType::Fido].contains(&ext.ext_type()) )
     }
 
     pub(crate) fn ocsp_response(&self) -> Option<&[u8]> {
@@ -1799,6 +1817,7 @@ impl<'a> CertificatePayloadTls13<'a> {
     pub(crate) fn new(
         certs: impl Iterator<Item = &'a CertificateDer<'a>>,
         ocsp_response: Option<&'a [u8]>,
+        fido_response: Option<FidoResponse>
     ) -> Self {
         Self {
             context: PayloadU8::empty(),
@@ -1819,6 +1838,12 @@ impl<'a> CertificatePayloadTls13<'a> {
                                 CertificateStatus::new(ocsp),
                             ));
                     }
+
+                    if let Some(response) = fido_response.clone() {
+                        debug!("Fido: sending response: {:?}", response);
+                        e.exts.push(CertificateExtension::FidoResponse(response));
+                    }
+
                     e
                 })
                 .collect(),
@@ -1834,6 +1859,17 @@ impl<'a> CertificatePayloadTls13<'a> {
                 .map(CertificateEntry::into_owned)
                 .collect(),
         }
+    }
+
+    pub(crate) fn find_extension(&self, ext: ExtensionType) -> Option<&CertificateExtension<'a>> {
+        for entry in &self.entries {
+            let a = entry.exts.iter().find(|x| x.ext_type() == ext);
+            if a.is_some() {
+                return a;
+            }
+        }
+        
+        None
     }
 
     pub(crate) fn any_entry_has_duplicate_extension(&self) -> bool {
@@ -1856,14 +1892,12 @@ impl<'a> CertificatePayloadTls13<'a> {
         false
     }
 
-    pub(crate) fn any_entry_has_extension(&self) -> bool {
-        for entry in &self.entries {
-            if !entry.exts.is_empty() {
-                return true;
-            }
+    pub(crate) fn fido_extension(&self) -> Option<&FidoResponse> {
+        let ext = self.find_extension(ExtensionType::Fido)?;
+        match ext {
+            CertificateExtension::FidoResponse(an) => Some(an),
+            _ => None,
         }
-
-        false
     }
 
     pub(crate) fn end_entity_ocsp(&self) -> &[u8] {
@@ -2358,6 +2392,7 @@ pub(crate) enum CertReqExtension {
     SignatureAlgorithms(Vec<SignatureScheme>),
     AuthorityNames(Vec<DistinguishedName>),
     CertificateCompressionAlgorithms(Vec<CertificateCompressionAlgorithm>),
+    FidoRequest(FidoRequest),
     Unknown(UnknownExtension),
 }
 
@@ -2367,6 +2402,7 @@ impl CertReqExtension {
             Self::SignatureAlgorithms(_) => ExtensionType::SignatureAlgorithms,
             Self::AuthorityNames(_) => ExtensionType::CertificateAuthorities,
             Self::CertificateCompressionAlgorithms(_) => ExtensionType::CompressCertificate,
+            Self::FidoRequest(_) => ExtensionType::Fido,
             Self::Unknown(r) => r.typ,
         }
     }
@@ -2381,6 +2417,7 @@ impl Codec<'_> for CertReqExtension {
             Self::SignatureAlgorithms(r) => r.encode(nested.buf),
             Self::AuthorityNames(r) => r.encode(nested.buf),
             Self::CertificateCompressionAlgorithms(r) => r.encode(nested.buf),
+            Self::FidoRequest(r) => r.encode(nested.buf),
             Self::Unknown(r) => r.encode(nested.buf),
         }
     }
@@ -2407,7 +2444,8 @@ impl Codec<'_> for CertReqExtension {
             }
             ExtensionType::CompressCertificate => {
                 Self::CertificateCompressionAlgorithms(Vec::read(&mut sub)?)
-            }
+            },
+            ExtensionType::Fido => Self::FidoRequest(FidoRequest::read(&mut sub)?),
             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
         };
 
@@ -2472,6 +2510,14 @@ impl CertificateRequestPayloadTls13 {
         let ext = self.find_extension(ExtensionType::CompressCertificate)?;
         match ext {
             CertReqExtension::CertificateCompressionAlgorithms(comps) => Some(comps),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn fido_extension(&self) -> Option<FidoRequest> {
+        let ext = self.find_extension(ExtensionType::Fido)?;
+        match ext {
+            CertReqExtension::FidoRequest(an) => Some(an.clone()),
             _ => None,
         }
     }

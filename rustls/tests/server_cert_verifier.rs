@@ -248,6 +248,7 @@ fn client_can_request_certain_trusted_cas() {
     let server_config = Arc::new(
         server_config_builder()
             .with_no_client_auth()
+            .with_no_fido()
             .with_cert_resolver(Arc::new(cert_resolver.clone())),
     );
 

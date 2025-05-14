@@ -1125,6 +1125,7 @@ fn server_allow_any_anonymous_or_authenticated_client() {
 
         let server_config = server_config_builder()
             .with_client_cert_verifier(client_auth)
+            .with_no_fido()
             .with_single_cert(kt.get_chain(), kt.get_key())
             .unwrap();
         let server_config = Arc::new(server_config);
@@ -6808,6 +6809,7 @@ fn test_secret_extraction_enabled() {
         .with_protocol_versions(&[version])
         .unwrap()
         .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap();
         // Opt into secret extraction from both sides
@@ -6942,6 +6944,7 @@ fn test_secret_extraction_disabled_or_too_early() {
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_no_client_auth()
+            .with_no_fido()
             .with_single_cert(kt.get_chain(), kt.get_key())
             .unwrap();
         server_config.enable_secret_extraction = server_enable;
@@ -7001,6 +7004,7 @@ fn test_received_plaintext_backpressure() {
         .with_safe_default_protocol_versions()
         .unwrap()
         .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap(),
     );
@@ -7594,6 +7598,7 @@ fn test_pinned_ocsp_response_given_to_custom_server_cert_verifier() {
     for version in rustls::ALL_VERSIONS {
         let server_config = server_config_builder()
             .with_no_client_auth()
+            .with_no_fido()
             .with_single_cert_with_ocsp(kt.get_chain(), kt.get_key(), ocsp_response.to_vec())
             .unwrap();
 

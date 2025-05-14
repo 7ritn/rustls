@@ -1505,6 +1505,7 @@ fn test_secret_extraction_enabled() {
         .with_protocol_versions(&[version])
         .unwrap()
         .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap();
         // Opt into secret extraction from both sides

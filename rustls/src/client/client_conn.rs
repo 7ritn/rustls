@@ -7,6 +7,7 @@ use pki_types::{ServerName, UnixTime};
 
 use super::handy::NoClientSessionStorage;
 use super::hs;
+use crate::fido::state::FidoClient;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
@@ -281,6 +282,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// State of fido authentication
+    pub fido: Option<FidoClient>
 }
 
 impl ClientConfig {
@@ -630,11 +634,12 @@ mod connection {
     use alloc::vec::Vec;
     use core::fmt;
     use core::ops::{Deref, DerefMut};
-    use std::io;
+    use std::{io, vec};
 
     use pki_types::ServerName;
 
     use super::ClientConnectionData;
+
     use crate::ClientConfig;
     use crate::client::EchStatus;
     use crate::common_state::Protocol;
@@ -717,7 +722,7 @@ mod connection {
                     config,
                     name,
                     alpn_protocols,
-                    Vec::new(),
+                    vec![],
                     Protocol::Tcp,
                 )?),
             })

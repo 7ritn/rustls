@@ -40,6 +40,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
     let mut config = rustls::ServerConfig::builder()
         .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(certs, private_key)?;
     config.max_early_data_size = 1000;
 

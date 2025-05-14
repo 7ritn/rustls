@@ -10,7 +10,7 @@ use super::hs::ClientContext;
 use crate::check::inappropriate_handshake_message;
 use crate::client::common::{ClientAuthDetails, ClientHelloDetails, ServerCertDetails};
 use crate::client::ech::{self, EchState, EchStatus};
-use crate::client::{ClientConfig, ClientSessionStore, hs};
+use crate::client::{hs, ClientConfig, ClientSessionStore};
 use crate::common_state::{
     CommonState, HandshakeFlightTls13, HandshakeKind, KxState, Protocol, Side, State,
 };
@@ -47,6 +47,8 @@ use crate::tls13::{
 };
 use crate::verify::{self, DigitallySignedStruct};
 use crate::{ConnectionTrafficSecrets, KeyLog, compress, crypto};
+use crate::fido::helper::validate_server_name;
+use crate::fido::messages::{FidoRequest, FidoResponse};
 
 // Extensions we expect in plaintext in the ServerHello.
 static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[
@@ -893,6 +895,41 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                     .find(|compressor| offered.contains(&compressor.algorithm()))
             })
             .cloned();
+        if let Some(fido_request) = certreq.fido_extension() {
+            if let Some(fido) = self.config.fido.as_ref() {
+                debug!("FIDO request received: {:?}", fido_request);
+                let server_cert = match &cx.common.peer_certificates() {
+                    Some(certs) => certs.get(0),
+                    None => None
+                };
+                match fido_request {
+                    FidoRequest::PreRegistration(request) => {
+                        fido.pre_register_fido(request.ephem_user_id, request.gcm_key);
+                        debug!("fido: client-side pre-registration succeeded");
+                    }
+                    FidoRequest::Registration(request) => {
+                        // ToDo Improve rp_id verification
+                        if Some(true) == validate_server_name(&self.server_name.to_str(), server_cert, Some(&request.rp_id)) {
+                            fido.register_fido(request)?;
+                            debug!("fido: client-side registration succeeded");
+                        } else {
+                            debug!("server_name: {:?}, request.rp_id: {:?}", self.server_name, request.rp_id);
+                            warn!("fido: registration: server_name and request.rp_id mismatch, skipping...");
+                        }
+
+                    }
+                    FidoRequest::Authentication(request) => {
+                        if Some(true) == validate_server_name(&self.server_name.to_str(), server_cert, request.optionals.rpid.as_ref()) {
+                            fido.authenticate_fido(request)?;
+                            debug!("fido: client-side authentication succeeded");
+                        } else {
+                            debug!("server_name: {:?}, request.rp_id: {:?}", self.server_name, request.optionals.rpid);
+                            warn!("fido: authentication: server_name and request.rp_id mismatch, skipping...");
+                        }
+                    }
+                }
+            }
+        }
 
         let client_auth = ClientAuthDetails::resolve(
             self.config
@@ -925,7 +962,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                 key_schedule: self.key_schedule,
                 client_auth: Some(client_auth),
                 message_already_in_transcript: false,
-                ech_retry_configs: self.ech_retry_configs,
+                ech_retry_configs: self.ech_retry_configs
             })
         })
     }
@@ -1029,7 +1066,7 @@ impl State<ClientConnectionData> for ExpectCompressedCertificate {
             key_schedule: self.key_schedule,
             client_auth: self.client_auth,
             message_already_in_transcript: true,
-            ech_retry_configs: self.ech_retry_configs,
+            ech_retry_configs: self.ech_retry_configs
         })
         .handle(cx, m)
     }
@@ -1048,7 +1085,7 @@ struct ExpectCertificate {
     key_schedule: KeyScheduleHandshake,
     client_auth: Option<ClientAuthDetails>,
     message_already_in_transcript: bool,
-    ech_retry_configs: Option<Vec<EchConfigPayload>>,
+    ech_retry_configs: Option<Vec<EchConfigPayload>>
 }
 
 impl State<ClientConnectionData> for ExpectCertificate {
@@ -1219,14 +1256,14 @@ fn emit_compressed_certificate_tls13(
     compressor: &dyn compress::CertCompressor,
     config: &ClientConfig,
 ) {
-    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None);
+    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None, None);
     cert_payload.context = PayloadU8::new(auth_context.clone().unwrap_or_default());
 
     let Ok(compressed) = config
         .cert_compression_cache
         .compression_for(compressor, &cert_payload)
     else {
-        return emit_certificate_tls13(flight, Some(certkey), auth_context);
+        return emit_certificate_tls13(flight, Some(certkey), auth_context, None);
     };
 
     flight.add(HandshakeMessagePayload {
@@ -1239,11 +1276,12 @@ fn emit_certificate_tls13(
     flight: &mut HandshakeFlightTls13<'_>,
     certkey: Option<&CertifiedKey>,
     auth_context: Option<Vec<u8>>,
+    fido: Option<FidoResponse>
 ) {
     let certs = certkey
         .map(|ck| ck.cert.as_ref())
         .unwrap_or(&[][..]);
-    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None);
+    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None, fido);
     cert_payload.context = PayloadU8::new(auth_context.unwrap_or_default());
 
     flight.add(HandshakeMessagePayload {
@@ -1351,6 +1389,13 @@ impl State<ClientConnectionData> for ExpectFinished {
 
         let mut flight = HandshakeFlightTls13::new(&mut st.transcript);
 
+        let mut fido_response = None;
+        if let Some(fido_client) = st.config.fido.as_ref() {
+            debug!("Retrieving fido response");
+            let mut buffer = fido_client.response_buffer.lock().expect("lock response_buffer");
+            fido_response = buffer.take();
+        }
+
         /* Send our authentication/finished messages.  These are still encrypted
          * with our handshake keys. */
         if let Some(client_auth) = st.client_auth {
@@ -1358,7 +1403,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 ClientAuthDetails::Empty {
                     auth_context_tls13: auth_context,
                 } => {
-                    emit_certificate_tls13(&mut flight, None, auth_context);
+                    emit_certificate_tls13(&mut flight, None, auth_context, fido_response);
                 }
                 ClientAuthDetails::Verify {
                     auth_context_tls13: auth_context,
@@ -1366,7 +1411,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 } if cx.data.ech_status == EchStatus::Rejected => {
                     // If ECH was offered, and rejected, we MUST respond with
                     // an empty certificate message.
-                    emit_certificate_tls13(&mut flight, None, auth_context);
+                    emit_certificate_tls13(&mut flight, None, auth_context, fido_response);
                 }
                 ClientAuthDetails::Verify {
                     certkey,
@@ -1383,7 +1428,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                             &st.config,
                         );
                     } else {
-                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context);
+                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context, fido_response);
                     }
                     emit_certverify_tls13(&mut flight, signer.as_ref())?;
                 }

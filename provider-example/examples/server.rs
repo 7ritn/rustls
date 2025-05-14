@@ -95,6 +95,7 @@ impl TestPki {
                 .with_safe_default_protocol_versions()
                 .unwrap()
                 .with_no_client_auth()
+                .with_no_fido()
                 .with_single_cert(vec![self.server_cert_der], self.server_key_der)
                 .unwrap();
 

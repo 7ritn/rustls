@@ -206,6 +206,7 @@ impl TestPki {
         // supported algorithms/protocol versions).
         let mut server_config = ServerConfig::builder()
             .with_client_cert_verifier(verifier)
+            .with_no_fido()
             .with_single_cert(
                 vec![self.server_cert.cert.der().clone()],
                 PrivatePkcs8KeyDer::from(

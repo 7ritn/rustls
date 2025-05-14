@@ -628,6 +628,7 @@ fn make_server_cfg(opts: &Options) -> Arc<ServerConfig> {
         .with_protocol_versions(&opts.supported_versions())
         .unwrap()
         .with_client_cert_verifier(client_auth)
+        .with_no_fido()
         .with_single_cert_with_ocsp(cert.clone(), key, opts.server_ocsp_response.clone())
         .unwrap();
 
