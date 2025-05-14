@@ -8,48 +8,54 @@
 //! Note that `unwrap()` is used to deal with networking errors; this is not something
 //! that is sensible outside of example code.
 
-use std::io::{Read, Write, stdout};
+use std::fs::File;
+use std::io::{stdout, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::RootCertStore;
+use rustls_pemfile::certs; // This is the function you're missing
 
 fn main() {
-    let root_store = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.into(),
-    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+
+    let cert_file = File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open cert file");
+    let mut reader = BufReader::new(cert_file);
+
+    // Parse the certificate(s)
+    let certs = certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    // Create a root store and add the certs
+    let mut root_store = RootCertStore::empty();
+    for cert in certs {
+        root_store
+            .add(cert)
+            .expect("failed to add cert to root store");
+    }
+
+    let client_cert = CertificateDer::pem_file_iter("/home/triton/Development/rustls/target/debug/tls-certs/client.cert.pem")
+        .unwrap()
+        .map(Result::unwrap)
+        .collect();
+    let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/target/debug/tls-certs/client.key.pem").unwrap();
+
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
-        .with_no_client_auth();
+        .with_client_auth_fido(client_cert, client_key)
+        .unwrap();
 
     // Allow using SSLKEYLOGFILE.
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
-    let server_name = "www.rust-lang.org".try_into().unwrap();
+    let server_name = "localhost".try_into().unwrap();
     let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut sock = TcpStream::connect("www.rust-lang.org:443").unwrap();
+    let mut sock = TcpStream::connect("localhost:4443").unwrap();
     let mut tls = rustls::Stream::new(&mut conn, &mut sock);
-    tls.write_all(
-        concat!(
-            "GET / HTTP/1.1\r\n",
-            "Host: www.rust-lang.org\r\n",
-            "Connection: close\r\n",
-            "Accept-Encoding: identity\r\n",
-            "\r\n"
-        )
-        .as_bytes(),
-    )
-    .unwrap();
-    let ciphersuite = tls
-        .conn
-        .negotiated_cipher_suite()
-        .unwrap();
-    writeln!(
-        &mut std::io::stderr(),
-        "Current ciphersuite: {:?}",
-        ciphersuite.suite()
-    )
-    .unwrap();
+
     let mut plaintext = Vec::new();
     tls.read_to_end(&mut plaintext).unwrap();
     stdout().write_all(&plaintext).unwrap();

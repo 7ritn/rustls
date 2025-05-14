@@ -42,6 +42,10 @@ log = { workspace = true, optional = true }
 # only required for no-std
 once_cell = { workspace = true }
 ring = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_tuple = { workspace = true }
+serde_cbor = { workspace = true }
+serde_json = { workspace = true }
 subtle = { workspace = true }
 webpki = { workspace = true }
 pki-types = { workspace = true }
@@ -57,8 +61,6 @@ log = { workspace = true }
 macro_rules_attribute = { workspace = true }
 num-bigint = { workspace = true }
 rcgen = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 time = { workspace = true }
 webpki-roots = { workspace = true }
 x509-parser = { workspace = true }

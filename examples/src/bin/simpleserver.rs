@@ -7,46 +7,66 @@
 //! Note that `unwrap()` is used to deal with networking errors; this is not something
 //! that is sensible outside of example code.
 
-use std::env;
 use std::error::Error as StdError;
-use std::io::{Read, Write};
+use std::fs::File;
+use std::io::{BufReader, Write};
 use std::net::TcpListener;
 use std::sync::Arc;
 
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use rustls::server::WebPkiClientVerifier;
+use rustls::RootCertStore;
+use rustls_pemfile::certs;
+
+fn load_ca_certs() -> RootCertStore {
+    let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open CA file"));
+    let certs = certs(&mut reader)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let mut store = RootCertStore::empty();
+    for cert in certs {
+        store.add(CertificateDer::from(cert)).unwrap();
+    }
+    store
+}
 
 fn main() -> Result<(), Box<dyn StdError>> {
-    let mut args = env::args();
-    args.next();
-    let cert_file = args
-        .next()
-        .expect("missing certificate file argument");
-    let private_key_file = args
-        .next()
-        .expect("missing private key file argument");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+
+    let cert_file = "/home/triton/Development/rustls/target/debug/tls-certs/server.cert.pem";
+    let private_key_file = "/home/triton/Development/rustls/target/debug/tls-certs/server.key.pem";
 
     let certs = CertificateDer::pem_file_iter(cert_file)
         .unwrap()
         .map(|cert| cert.unwrap())
         .collect();
     let private_key = PrivateKeyDer::from_pem_file(private_key_file).unwrap();
+
+    // In your main():
+    let ca_store = load_ca_certs();
+    let verifier = WebPkiClientVerifier::builder(ca_store.into()).build().unwrap();
+
+
     let config = rustls::ServerConfig::builder()
-        .with_no_client_auth()
+        .with_client_cert_verifier(verifier)
         .with_single_cert(certs, private_key)?;
 
     let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();
     let (mut stream, _) = listener.accept()?;
+    stream.set_nonblocking(false)?;
 
     let mut conn = rustls::ServerConnection::new(Arc::new(config))?;
-    conn.complete_io(&mut stream)?;
+    while conn.is_handshaking() {
+        conn.complete_io(&mut stream)?;   
+    }
 
     conn.writer()
         .write_all(b"Hello from the server")?;
     conn.complete_io(&mut stream)?;
-    let mut buf = [0; 64];
-    let len = conn.reader().read(&mut buf)?;
-    println!("Received message from client: {:?}", &buf[..len]);
+
+    conn.send_close_notify();
+    conn.complete_io(&mut stream)?;
 
     Ok(())
 }

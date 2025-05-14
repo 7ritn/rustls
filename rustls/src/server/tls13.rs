@@ -37,11 +37,15 @@ use crate::tls13::{
 };
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
+use crate::fido::enums::MessageType;
+
 mod client_hello {
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
+    use crate::fido::messages::{FidoAuthenticationRequestOptionals, FidoAuthenticationRequest};
+    use crate::fido::state::Fido;
     use crate::msgs::base::{Payload, PayloadU8};
     use crate::msgs::ccs::ChangeCipherSpecPayload;
     use crate::msgs::enums::{Compression, NamedGroup, PskKeyExchangeMode};
@@ -50,6 +54,7 @@ mod client_hello {
         ClientHelloPayload, HelloRetryExtension, HelloRetryRequest, KeyShareEntry, Random,
         ServerExtension, ServerHelloPayload, SessionId,
     };
+    use crate::rand::random_u16;
     use crate::server::common::ActiveCertifiedKey;
     use crate::sign;
     use crate::tls13::key_schedule::{
@@ -183,6 +188,15 @@ mod client_hello {
                         .iter()
                         .find(|compressor| offered.contains(&compressor.algorithm()))
                         .cloned());
+
+            if let Some(fido_indication) = client_hello.fido_indicated() {
+                debug!("Fido supported");
+                if fido_indication.message_type == u8::from(MessageType::AuthenticationIndication) {
+                    let mut fido = self.config.fido.lock().unwrap();
+                    *fido = Some(Fido{..Default::default()})
+                }
+            }
+            
 
             let early_data_requested = client_hello.early_data_extension_offered();
 
@@ -715,6 +729,14 @@ mod client_hello {
         cr.extensions
             .push(CertReqExtension::SignatureAlgorithms(schemes.to_vec()));
 
+        let mut fido_option = config.fido.lock().unwrap();
+        if let Some(fido) = fido_option.as_mut() {
+            let fido_challenge = vec![random_u16(config.provider.secure_random).unwrap() as u8];
+            cr.extensions.push(CertReqExtension::FidoAuthenticationRequest(FidoAuthenticationRequest::new(fido_challenge.clone(), None)));
+            fido.challenge = Some(fido_challenge);
+        }
+        drop(fido_option);
+
         if !config.cert_decompressors.is_empty() {
             cr.extensions
                 .push(CertReqExtension::CertificateCompressionAlgorithms(
@@ -752,6 +774,7 @@ mod client_hello {
             payload: HandshakePayload::CertificateTls13(CertificatePayloadTls13::new(
                 cert_chain.iter(),
                 ocsp_response,
+                None
             )),
         };
 
@@ -766,7 +789,7 @@ mod client_hello {
         ocsp_response: Option<&[u8]>,
         cert_compressor: &'static dyn CertCompressor,
     ) {
-        let payload = CertificatePayloadTls13::new(cert_chain.iter(), ocsp_response);
+        let payload = CertificatePayloadTls13::new(cert_chain.iter(), ocsp_response, None);
 
         let Ok(entry) = config
             .cert_compression_cache
@@ -1075,8 +1098,22 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         // We don't send any CertificateRequest extensions, so any extensions
         // here are illegal.
-        if certp.any_entry_has_extension() {
-            return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
+        // if certp.any_entry_has_extension() {
+        //    return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
+        //}
+
+        trace!("Received Certificate message");
+
+        if let Some(fido) = self.config.fido.lock().unwrap().as_ref() {
+            let fido_response = certp.fido_extension().unwrap();
+            let fido_challenge = fido.challenge.clone().unwrap()[0];
+            if vec![fido_challenge + 1] != fido_response.signature {
+                return Err(cx.common.send_fatal_alert(
+                    AlertDescription::BadCertificate,
+                    Error::InvalidCertificate(crate::CertificateError::BadSignature),
+                ));
+            }
+            debug!("FIDO response verified");
         }
 
         let client_cert = certp.into_certificate_chain();

@@ -2,11 +2,13 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
+use std::sync::Mutex;
 
 use pki_types::{ServerName, UnixTime};
 
 use super::handy::NoClientSessionStorage;
 use super::hs;
+use crate::fido::state::FidoClient;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
@@ -281,6 +283,9 @@ pub struct ClientConfig {
 
     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
     pub(super) ech_mode: Option<EchMode>,
+
+    /// State of fido authentication
+    pub fido: Arc<Mutex<Option<FidoClient>>>
 }
 
 impl ClientConfig {
@@ -630,11 +635,14 @@ mod connection {
     use alloc::vec::Vec;
     use core::fmt;
     use core::ops::{Deref, DerefMut};
-    use std::io;
+    use std::{io, vec};
 
     use pki_types::ServerName;
 
     use super::ClientConnectionData;
+    use crate::fido::enums::MessageType;
+    use crate::fido::messages::FidoAuthenticationIndication;
+    use crate::msgs::handshake::ClientExtension;
     use crate::ClientConfig;
     use crate::client::EchStatus;
     use crate::common_state::Protocol;
@@ -712,12 +720,16 @@ mod connection {
             name: ServerName<'static>,
             alpn_protocols: Vec<Vec<u8>>,
         ) -> Result<Self, Error> {
+            let extra_exts = match *config.fido.lock().unwrap() {
+                Some(_) => vec![ClientExtension::FidoAuthenticationIndication(FidoAuthenticationIndication::new(vec![]))],
+                None => vec![]
+            };
             Ok(Self {
                 inner: ConnectionCommon::from(ConnectionCore::for_client(
                     config,
                     name,
                     alpn_protocols,
-                    Vec::new(),
+                    extra_exts,
                     Protocol::Tcp,
                 )?),
             })

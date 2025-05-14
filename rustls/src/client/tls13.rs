@@ -10,7 +10,7 @@ use super::hs::ClientContext;
 use crate::check::inappropriate_handshake_message;
 use crate::client::common::{ClientAuthDetails, ClientHelloDetails, ServerCertDetails};
 use crate::client::ech::{self, EchState, EchStatus};
-use crate::client::{ClientConfig, ClientSessionStore, hs};
+use crate::client::{hs, ClientConfig, ClientSessionStore};
 use crate::common_state::{
     CommonState, HandshakeFlightTls13, HandshakeKind, KxState, Protocol, Side, State,
 };
@@ -894,6 +894,13 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
             })
             .cloned();
 
+        let fido_challenge = certreq.fido_extension().unwrap();
+        debug!("FIDO challenge received: {:?}", fido_challenge);
+        let mut binding = self.config.fido.lock().unwrap();
+        let fido_state = binding.as_mut().unwrap();
+        fido_state.challenge = Some(fido_challenge.challenge);
+        drop(binding);
+
         let client_auth = ClientAuthDetails::resolve(
             self.config
                 .client_auth_cert_resolver
@@ -925,7 +932,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                 key_schedule: self.key_schedule,
                 client_auth: Some(client_auth),
                 message_already_in_transcript: false,
-                ech_retry_configs: self.ech_retry_configs,
+                ech_retry_configs: self.ech_retry_configs
             })
         })
     }
@@ -1029,7 +1036,7 @@ impl State<ClientConnectionData> for ExpectCompressedCertificate {
             key_schedule: self.key_schedule,
             client_auth: self.client_auth,
             message_already_in_transcript: true,
-            ech_retry_configs: self.ech_retry_configs,
+            ech_retry_configs: self.ech_retry_configs
         })
         .handle(cx, m)
     }
@@ -1048,7 +1055,7 @@ struct ExpectCertificate {
     key_schedule: KeyScheduleHandshake,
     client_auth: Option<ClientAuthDetails>,
     message_already_in_transcript: bool,
-    ech_retry_configs: Option<Vec<EchConfigPayload>>,
+    ech_retry_configs: Option<Vec<EchConfigPayload>>
 }
 
 impl State<ClientConnectionData> for ExpectCertificate {
@@ -1219,14 +1226,14 @@ fn emit_compressed_certificate_tls13(
     compressor: &dyn compress::CertCompressor,
     config: &ClientConfig,
 ) {
-    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None);
+    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None, None);
     cert_payload.context = PayloadU8::new(auth_context.clone().unwrap_or_default());
 
     let Ok(compressed) = config
         .cert_compression_cache
         .compression_for(compressor, &cert_payload)
     else {
-        return emit_certificate_tls13(flight, Some(certkey), auth_context);
+        return emit_certificate_tls13(flight, Some(certkey), auth_context, None);
     };
 
     flight.add(HandshakeMessagePayload {
@@ -1239,11 +1246,12 @@ fn emit_certificate_tls13(
     flight: &mut HandshakeFlightTls13<'_>,
     certkey: Option<&CertifiedKey>,
     auth_context: Option<Vec<u8>>,
+    fido_challenge: Option<u8>
 ) {
     let certs = certkey
         .map(|ck| ck.cert.as_ref())
         .unwrap_or(&[][..]);
-    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None);
+    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None, fido_challenge);
     cert_payload.context = PayloadU8::new(auth_context.unwrap_or_default());
 
     flight.add(HandshakeMessagePayload {
@@ -1358,7 +1366,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 ClientAuthDetails::Empty {
                     auth_context_tls13: auth_context,
                 } => {
-                    emit_certificate_tls13(&mut flight, None, auth_context);
+                    emit_certificate_tls13(&mut flight, None, auth_context, None);
                 }
                 ClientAuthDetails::Verify {
                     auth_context_tls13: auth_context,
@@ -1366,7 +1374,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 } if cx.data.ech_status == EchStatus::Rejected => {
                     // If ECH was offered, and rejected, we MUST respond with
                     // an empty certificate message.
-                    emit_certificate_tls13(&mut flight, None, auth_context);
+                    emit_certificate_tls13(&mut flight, None, auth_context, None);
                 }
                 ClientAuthDetails::Verify {
                     certkey,
@@ -1383,7 +1391,8 @@ impl State<ClientConnectionData> for ExpectFinished {
                             &st.config,
                         );
                     } else {
-                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context);
+                        let fido = st.config.fido.lock().unwrap();
+                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context, Some(fido.clone().unwrap().challenge.unwrap()[0]));
                     }
                     emit_certverify_tls13(&mut flight, signer.as_ref())?;
                 }

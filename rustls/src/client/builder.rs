@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::marker::PhantomData;
+use std::sync::Mutex;
 
 use pki_types::{CertificateDer, PrivateKeyDer};
 
@@ -7,6 +8,7 @@ use super::client_conn::Resumption;
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::client::{ClientConfig, EchMode, ResolvesClientCert, handy};
 use crate::error::Error;
+use crate::fido::state::FidoClient;
 use crate::key_log::NoKeyLog;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;
@@ -152,6 +154,37 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         Ok(self.with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key))))
     }
 
+
+    /// Use a FIDO token to authenticate against a server
+    pub fn with_client_auth_fido(
+        self,
+        cert_chain: Vec<CertificateDer<'static>>,
+        key_der: PrivateKeyDer<'static>
+    ) -> Result<ClientConfig, Error> {
+        let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
+        Ok(ClientConfig {
+            provider: self.provider,
+            alpn_protocols: Vec::new(),
+            resumption: Resumption::default(),
+            max_fragment_size: None,
+            client_auth_cert_resolver: Arc::new(SingleCertAndKey::from(certified_key)),
+            versions: self.state.versions,
+            enable_sni: true,
+            verifier: self.state.verifier,
+            key_log: Arc::new(NoKeyLog {}),
+            enable_secret_extraction: false,
+            enable_early_data: false,
+            #[cfg(feature = "tls12")]
+            require_ems: cfg!(feature = "fips"),
+            time_provider: self.time_provider,
+            cert_compressors: compress::default_cert_compressors().to_vec(),
+            cert_compression_cache: Arc::new(compress::CompressionCache::default()),
+            cert_decompressors: compress::default_cert_decompressors().to_vec(),
+            ech_mode: self.state.client_ech_mode,
+            fido: Arc::new(Mutex::new(Some(FidoClient{..Default::default()})))
+        })
+    }
+
     /// Do not support client auth.
     pub fn with_no_client_auth(self) -> ClientConfig {
         self.with_client_cert_resolver(Arc::new(handy::FailResolveClientCert {}))
@@ -181,6 +214,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
             ech_mode: self.state.client_ech_mode,
+            fido: Arc::new(Mutex::new(None))
         }
     }
 }

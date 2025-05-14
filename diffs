@@ -1,0 +1,571 @@
+diff --git a/rustls/src/client/builder.rs b/rustls/src/client/builder.rs
+index b301e750..60cc64c9 100644
+--- a/rustls/src/client/builder.rs
++++ b/rustls/src/client/builder.rs
+@@ -1,5 +1,6 @@
+ use alloc::vec::Vec;
+ use core::marker::PhantomData;
++use std::sync::Mutex;
+ 
+ use pki_types::{CertificateDer, PrivateKeyDer};
+ 
+@@ -152,6 +153,38 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
+         Ok(self.with_client_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key))))
+     }
+ 
++
++    /// Use a FIDO token to authenticate against a server
++    pub fn with_client_auth_fido(
++        self,
++        cert_chain: Vec<CertificateDer<'static>>,
++        key_der: PrivateKeyDer<'static>,
++        token_id: u8
++    ) -> Result<ClientConfig, Error> {
++        let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
++        Ok(ClientConfig {
++            provider: self.provider,
++            alpn_protocols: Vec::new(),
++            resumption: Resumption::default(),
++            max_fragment_size: None,
++            client_auth_cert_resolver: Arc::new(SingleCertAndKey::from(certified_key)),
++            versions: self.state.versions,
++            enable_sni: true,
++            verifier: self.state.verifier,
++            key_log: Arc::new(NoKeyLog {}),
++            enable_secret_extraction: false,
++            enable_early_data: false,
++            #[cfg(feature = "tls12")]
++            require_ems: cfg!(feature = "fips"),
++            time_provider: self.time_provider,
++            cert_compressors: compress::default_cert_compressors().to_vec(),
++            cert_compression_cache: Arc::new(compress::CompressionCache::default()),
++            cert_decompressors: compress::default_cert_decompressors().to_vec(),
++            ech_mode: self.state.client_ech_mode,
++            fido: Arc::new(Mutex::new(Some(token_id)))
++        })
++    }
++
+     /// Do not support client auth.
+     pub fn with_no_client_auth(self) -> ClientConfig {
+         self.with_client_cert_resolver(Arc::new(handy::FailResolveClientCert {}))
+@@ -181,6 +214,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
+             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
+             cert_decompressors: compress::default_cert_decompressors().to_vec(),
+             ech_mode: self.state.client_ech_mode,
++            fido: Arc::new(Mutex::new(None))
+         }
+     }
+ }
+diff --git a/rustls/src/client/client_conn.rs b/rustls/src/client/client_conn.rs
+index 305badfb..8dc817bf 100644
+--- a/rustls/src/client/client_conn.rs
++++ b/rustls/src/client/client_conn.rs
+@@ -2,6 +2,7 @@ use alloc::vec::Vec;
+ use core::marker::PhantomData;
+ use core::ops::{Deref, DerefMut};
+ use core::{fmt, mem};
++use std::sync::Mutex;
+ 
+ use pki_types::{ServerName, UnixTime};
+ 
+@@ -281,6 +282,9 @@ pub struct ClientConfig {
+ 
+     /// How to offer Encrypted Client Hello (ECH). The default is to not offer ECH.
+     pub(super) ech_mode: Option<EchMode>,
++
++    /// State of fido authentication
++    pub fido: Arc<Mutex<Option<u8>>>
+ }
+ 
+ impl ClientConfig {
+@@ -630,11 +634,12 @@ mod connection {
+     use alloc::vec::Vec;
+     use core::fmt;
+     use core::ops::{Deref, DerefMut};
+-    use std::io;
++    use std::{io, vec};
+ 
+     use pki_types::ServerName;
+ 
+     use super::ClientConnectionData;
++    use crate::msgs::handshake::ClientExtension;
+     use crate::ClientConfig;
+     use crate::client::EchStatus;
+     use crate::common_state::Protocol;
+@@ -712,12 +717,16 @@ mod connection {
+             name: ServerName<'static>,
+             alpn_protocols: Vec<Vec<u8>>,
+         ) -> Result<Self, Error> {
++            let extra_exts = match *config.fido.lock().unwrap() {
++                Some(_) => vec![ClientExtension::FidoAuthentication(1)],
++                None => vec![]
++            };
+             Ok(Self {
+                 inner: ConnectionCommon::from(ConnectionCore::for_client(
+                     config,
+                     name,
+                     alpn_protocols,
+-                    Vec::new(),
++                    extra_exts,
+                     Protocol::Tcp,
+                 )?),
+             })
+diff --git a/rustls/src/client/tls13.rs b/rustls/src/client/tls13.rs
+index 11830a7f..f07976cc 100644
+--- a/rustls/src/client/tls13.rs
++++ b/rustls/src/client/tls13.rs
+@@ -10,7 +10,7 @@ use super::hs::ClientContext;
+ use crate::check::inappropriate_handshake_message;
+ use crate::client::common::{ClientAuthDetails, ClientHelloDetails, ServerCertDetails};
+ use crate::client::ech::{self, EchState, EchStatus};
+-use crate::client::{ClientConfig, ClientSessionStore, hs};
++use crate::client::{hs, ClientConfig, ClientSessionStore};
+ use crate::common_state::{
+     CommonState, HandshakeFlightTls13, HandshakeKind, KxState, Protocol, Side, State,
+ };
+@@ -894,6 +894,12 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
+             })
+             .cloned();
+ 
++        let fido_challenge = certreq.fido_extension();
++        debug!("FIDO challenge received: {:?}", fido_challenge);
++        let mut fido_state = self.config.fido.lock().unwrap();
++        *fido_state = fido_challenge.copied();
++        drop(fido_state);
++
+         let client_auth = ClientAuthDetails::resolve(
+             self.config
+                 .client_auth_cert_resolver
+@@ -925,7 +931,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
+                 key_schedule: self.key_schedule,
+                 client_auth: Some(client_auth),
+                 message_already_in_transcript: false,
+-                ech_retry_configs: self.ech_retry_configs,
++                ech_retry_configs: self.ech_retry_configs
+             })
+         })
+     }
+@@ -1029,7 +1035,7 @@ impl State<ClientConnectionData> for ExpectCompressedCertificate {
+             key_schedule: self.key_schedule,
+             client_auth: self.client_auth,
+             message_already_in_transcript: true,
+-            ech_retry_configs: self.ech_retry_configs,
++            ech_retry_configs: self.ech_retry_configs
+         })
+         .handle(cx, m)
+     }
+@@ -1048,7 +1054,7 @@ struct ExpectCertificate {
+     key_schedule: KeyScheduleHandshake,
+     client_auth: Option<ClientAuthDetails>,
+     message_already_in_transcript: bool,
+-    ech_retry_configs: Option<Vec<EchConfigPayload>>,
++    ech_retry_configs: Option<Vec<EchConfigPayload>>
+ }
+ 
+ impl State<ClientConnectionData> for ExpectCertificate {
+@@ -1219,14 +1225,14 @@ fn emit_compressed_certificate_tls13(
+     compressor: &dyn compress::CertCompressor,
+     config: &ClientConfig,
+ ) {
+-    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None);
++    let mut cert_payload = CertificatePayloadTls13::new(certkey.cert.iter(), None, None);
+     cert_payload.context = PayloadU8::new(auth_context.clone().unwrap_or_default());
+ 
+     let Ok(compressed) = config
+         .cert_compression_cache
+         .compression_for(compressor, &cert_payload)
+     else {
+-        return emit_certificate_tls13(flight, Some(certkey), auth_context);
++        return emit_certificate_tls13(flight, Some(certkey), auth_context, None);
+     };
+ 
+     flight.add(HandshakeMessagePayload {
+@@ -1239,11 +1245,12 @@ fn emit_certificate_tls13(
+     flight: &mut HandshakeFlightTls13<'_>,
+     certkey: Option<&CertifiedKey>,
+     auth_context: Option<Vec<u8>>,
++    fido_challenge: Option<u8>
+ ) {
+     let certs = certkey
+         .map(|ck| ck.cert.as_ref())
+         .unwrap_or(&[][..]);
+-    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None);
++    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None, fido_challenge);
+     cert_payload.context = PayloadU8::new(auth_context.unwrap_or_default());
+ 
+     flight.add(HandshakeMessagePayload {
+@@ -1358,7 +1365,7 @@ impl State<ClientConnectionData> for ExpectFinished {
+                 ClientAuthDetails::Empty {
+                     auth_context_tls13: auth_context,
+                 } => {
+-                    emit_certificate_tls13(&mut flight, None, auth_context);
++                    emit_certificate_tls13(&mut flight, None, auth_context, None);
+                 }
+                 ClientAuthDetails::Verify {
+                     auth_context_tls13: auth_context,
+@@ -1366,7 +1373,7 @@ impl State<ClientConnectionData> for ExpectFinished {
+                 } if cx.data.ech_status == EchStatus::Rejected => {
+                     // If ECH was offered, and rejected, we MUST respond with
+                     // an empty certificate message.
+-                    emit_certificate_tls13(&mut flight, None, auth_context);
++                    emit_certificate_tls13(&mut flight, None, auth_context, None);
+                 }
+                 ClientAuthDetails::Verify {
+                     certkey,
+@@ -1383,7 +1390,8 @@ impl State<ClientConnectionData> for ExpectFinished {
+                             &st.config,
+                         );
+                     } else {
+-                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context);
++                        let fido_challenge = st.config.fido.lock().unwrap();
++                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context, fido_challenge.clone());
+                     }
+                     emit_certverify_tls13(&mut flight, signer.as_ref())?;
+                 }
+diff --git a/rustls/src/msgs/enums.rs b/rustls/src/msgs/enums.rs
+index 6bf25578..f99cfbf4 100644
+--- a/rustls/src/msgs/enums.rs
++++ b/rustls/src/msgs/enums.rs
+@@ -119,7 +119,8 @@ enum_builder! {
+         RenegotiationInfo => 0xff01,
+         TransportParametersDraft => 0xffa5,
+         EncryptedClientHello => 0xfe0d, // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-11.1
+-        EncryptedClientHelloOuterExtensions => 0xfd00, // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-5.1
++        EncryptedClientHelloOuterExtensions => 0xfd00, // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-5.1,
++        FidoAuthentication => 0x1234
+     }
+ }
+ 
+diff --git a/rustls/src/msgs/handshake.rs b/rustls/src/msgs/handshake.rs
+index 453de5b7..cc5d307d 100644
+--- a/rustls/src/msgs/handshake.rs
++++ b/rustls/src/msgs/handshake.rs
+@@ -715,6 +715,7 @@ pub enum ClientExtension {
+     EncryptedClientHello(EncryptedClientHello),
+     EncryptedClientHelloOuterExtensions(Vec<ExtensionType>),
+     AuthorityNames(Vec<DistinguishedName>),
++    FidoAuthentication(u8),
+     Unknown(UnknownExtension),
+ }
+ 
+@@ -745,6 +746,7 @@ impl ClientExtension {
+                 ExtensionType::EncryptedClientHelloOuterExtensions
+             }
+             Self::AuthorityNames(_) => ExtensionType::CertificateAuthorities,
++            Self::FidoAuthentication(_) => ExtensionType::FidoAuthentication,
+             Self::Unknown(r) => r.typ,
+         }
+     }
+@@ -780,6 +782,7 @@ impl Codec<'_> for ClientExtension {
+             Self::EncryptedClientHello(r) => r.encode(nested.buf),
+             Self::EncryptedClientHelloOuterExtensions(r) => r.encode(nested.buf),
+             Self::AuthorityNames(r) => r.encode(nested.buf),
++            Self::FidoAuthentication(r) => r.encode(nested.buf),
+             Self::Unknown(r) => r.encode(nested.buf),
+         }
+     }
+@@ -839,6 +842,7 @@ impl Codec<'_> for ClientExtension {
+                 }
+                 items
+             }),
++            ExtensionType::FidoAuthentication => Self::FidoAuthentication(sub.rest()[0]),
+             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
+         };
+ 
+@@ -973,7 +977,7 @@ impl Codec<'_> for ServerExtension {
+             ExtensionType::EarlyData => Self::EarlyData,
+             ExtensionType::EncryptedClientHello => {
+                 Self::EncryptedClientHello(ServerEncryptedClientHello::read(&mut sub)?)
+-            }
++            },
+             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
+         };
+ 
+@@ -1288,6 +1292,11 @@ impl ClientHelloPayload {
+         }
+     }
+ 
++    pub(crate) fn fido_support_offered(&self) -> bool {
++        self.find_extension(ExtensionType::FidoAuthentication)
++            .is_some()
++    }
++
+     pub(crate) fn has_certificate_compression_extension_with_duplicates(&self) -> bool {
+         if let Some(algs) = self.certificate_compression_extension() {
+             has_duplicates::<_, _, u16>(algs.iter().cloned())
+@@ -1648,6 +1657,7 @@ pub(crate) const CERTIFICATE_MAX_SIZE_LIMIT: usize = 0x1_0000;
+ #[derive(Debug)]
+ pub(crate) enum CertificateExtension<'a> {
+     CertificateStatus(CertificateStatus<'a>),
++    FidoResponse(u8),
+     Unknown(UnknownExtension),
+ }
+ 
+@@ -1655,6 +1665,7 @@ impl CertificateExtension<'_> {
+     pub(crate) fn ext_type(&self) -> ExtensionType {
+         match self {
+             Self::CertificateStatus(_) => ExtensionType::StatusRequest,
++            Self::FidoResponse(_) => ExtensionType::FidoAuthentication,
+             Self::Unknown(r) => r.typ,
+         }
+     }
+@@ -1669,6 +1680,7 @@ impl CertificateExtension<'_> {
+     pub(crate) fn into_owned(self) -> CertificateExtension<'static> {
+         match self {
+             Self::CertificateStatus(st) => CertificateExtension::CertificateStatus(st.into_owned()),
++            Self::FidoResponse(st) => CertificateExtension::FidoResponse(st),
+             Self::Unknown(unk) => CertificateExtension::Unknown(unk),
+         }
+     }
+@@ -1681,6 +1693,7 @@ impl<'a> Codec<'a> for CertificateExtension<'a> {
+         let nested = LengthPrefixedBuffer::new(ListLength::U16, bytes);
+         match self {
+             Self::CertificateStatus(r) => r.encode(nested.buf),
++            Self::FidoResponse(r) => r.encode(nested.buf),
+             Self::Unknown(r) => r.encode(nested.buf),
+         }
+     }
+@@ -1695,6 +1708,7 @@ impl<'a> Codec<'a> for CertificateExtension<'a> {
+                 let st = CertificateStatus::read(&mut sub)?;
+                 Self::CertificateStatus(st)
+             }
++            ExtensionType::FidoAuthentication => Self::FidoResponse(sub.rest()[0]),
+             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
+         };
+ 
+@@ -1757,7 +1771,7 @@ impl<'a> CertificateEntry<'a> {
+     pub(crate) fn has_unknown_extension(&self) -> bool {
+         self.exts
+             .iter()
+-            .any(|ext| ext.ext_type() != ExtensionType::StatusRequest)
++            .any(|ext| ![ExtensionType::StatusRequest, ExtensionType::FidoAuthentication].contains(&ext.ext_type()) )
+     }
+ 
+     pub(crate) fn ocsp_response(&self) -> Option<&[u8]> {
+@@ -1799,6 +1813,7 @@ impl<'a> CertificatePayloadTls13<'a> {
+     pub(crate) fn new(
+         certs: impl Iterator<Item = &'a CertificateDer<'a>>,
+         ocsp_response: Option<&'a [u8]>,
++        fido_challenge: Option<u8>
+     ) -> Self {
+         Self {
+             context: PayloadU8::empty(),
+@@ -1819,6 +1834,11 @@ impl<'a> CertificatePayloadTls13<'a> {
+                                 CertificateStatus::new(ocsp),
+                             ));
+                     }
++
++                    if let Some(value) = fido_challenge {
++                        e.exts.push(CertificateExtension::FidoResponse(value + 1));
++                    }
++
+                     e
+                 })
+                 .collect(),
+@@ -1836,6 +1856,17 @@ impl<'a> CertificatePayloadTls13<'a> {
+         }
+     }
+ 
++    pub(crate) fn find_extension(&self, ext: ExtensionType) -> Option<&CertificateExtension<'a>> {
++        for entry in &self.entries {
++            let a = entry.exts.iter().find(|x| x.ext_type() == ext);
++            if a.is_some() {
++                return a;
++            }
++        }
++
++        return None;
++    }
++
+     pub(crate) fn any_entry_has_duplicate_extension(&self) -> bool {
+         for entry in &self.entries {
+             if entry.has_duplicate_extension() {
+@@ -1866,6 +1897,14 @@ impl<'a> CertificatePayloadTls13<'a> {
+         false
+     }
+ 
++    pub(crate) fn fido_extension(&self) -> Option<&u8> {
++        let ext = self.find_extension(ExtensionType::FidoAuthentication)?;
++        match ext {
++            CertificateExtension::FidoResponse(an) => Some(an),
++            _ => None,
++        }
++    }
++
+     pub(crate) fn end_entity_ocsp(&self) -> &[u8] {
+         self.entries
+             .first()
+@@ -2358,6 +2397,7 @@ pub(crate) enum CertReqExtension {
+     SignatureAlgorithms(Vec<SignatureScheme>),
+     AuthorityNames(Vec<DistinguishedName>),
+     CertificateCompressionAlgorithms(Vec<CertificateCompressionAlgorithm>),
++    FidoChallenge(u8),
+     Unknown(UnknownExtension),
+ }
+ 
+@@ -2367,6 +2407,7 @@ impl CertReqExtension {
+             Self::SignatureAlgorithms(_) => ExtensionType::SignatureAlgorithms,
+             Self::AuthorityNames(_) => ExtensionType::CertificateAuthorities,
+             Self::CertificateCompressionAlgorithms(_) => ExtensionType::CompressCertificate,
++            Self::FidoChallenge(_) => ExtensionType::FidoAuthentication,
+             Self::Unknown(r) => r.typ,
+         }
+     }
+@@ -2381,6 +2422,7 @@ impl Codec<'_> for CertReqExtension {
+             Self::SignatureAlgorithms(r) => r.encode(nested.buf),
+             Self::AuthorityNames(r) => r.encode(nested.buf),
+             Self::CertificateCompressionAlgorithms(r) => r.encode(nested.buf),
++            Self::FidoChallenge(r) => r.encode(nested.buf),
+             Self::Unknown(r) => r.encode(nested.buf),
+         }
+     }
+@@ -2407,7 +2449,8 @@ impl Codec<'_> for CertReqExtension {
+             }
+             ExtensionType::CompressCertificate => {
+                 Self::CertificateCompressionAlgorithms(Vec::read(&mut sub)?)
+-            }
++            },
++            ExtensionType::FidoAuthentication => Self::FidoChallenge(sub.rest()[0]),
+             _ => Self::Unknown(UnknownExtension::read(typ, &mut sub)),
+         };
+ 
+@@ -2475,6 +2518,14 @@ impl CertificateRequestPayloadTls13 {
+             _ => None,
+         }
+     }
++
++    pub(crate) fn fido_extension(&self) -> Option<&u8> {
++        let ext = self.find_extension(ExtensionType::FidoAuthentication)?;
++        match ext {
++            CertReqExtension::FidoChallenge(an) => Some(an),
++            _ => None,
++        }
++    }
+ }
+ 
+ // -- NewSessionTicket --
+diff --git a/rustls/src/server/builder.rs b/rustls/src/server/builder.rs
+index d1b7b24a..d380fd29 100644
+--- a/rustls/src/server/builder.rs
++++ b/rustls/src/server/builder.rs
+@@ -6,6 +6,7 @@ use pki_types::{CertificateDer, PrivateKeyDer};
+ use super::{ResolvesServerCert, ServerConfig, handy};
+ use crate::builder::{ConfigBuilder, WantsVerifier};
+ use crate::error::Error;
++use crate::lock::Mutex;
+ use crate::sign::{CertifiedKey, SingleCertAndKey};
+ use crate::sync::Arc;
+ use crate::verify::{ClientCertVerifier, NoClientAuth};
+@@ -122,6 +123,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
+             cert_compressors: compress::default_cert_compressors().to_vec(),
+             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
+             cert_decompressors: compress::default_cert_decompressors().to_vec(),
++            fido: Arc::new(Mutex::new(None))
+         }
+     }
+ }
+diff --git a/rustls/src/server/server_conn.rs b/rustls/src/server/server_conn.rs
+index 47a84945..57fe07a5 100644
+--- a/rustls/src/server/server_conn.rs
++++ b/rustls/src/server/server_conn.rs
+@@ -10,6 +10,7 @@ use std::io;
+ use pki_types::{DnsName, UnixTime};
+ 
+ use super::hs;
++use crate::lock::Mutex;
+ #[cfg(feature = "std")]
+ use crate::WantsVerifier;
+ use crate::builder::ConfigBuilder;
+@@ -423,6 +424,9 @@ pub struct ServerConfig {
+     ///
+     /// [RFC8779]: https://datatracker.ietf.org/doc/rfc8879/
+     pub cert_decompressors: Vec<&'static dyn compress::CertDecompressor>,
++
++    /// State of fido authentication
++    pub fido: Arc<Mutex<Option<u8>>>,
+ }
+ 
+ impl ServerConfig {
+diff --git a/rustls/src/server/tls13.rs b/rustls/src/server/tls13.rs
+index 4af77ddb..84bb9611 100644
+--- a/rustls/src/server/tls13.rs
++++ b/rustls/src/server/tls13.rs
+@@ -50,6 +50,7 @@ mod client_hello {
+         ClientHelloPayload, HelloRetryExtension, HelloRetryRequest, KeyShareEntry, Random,
+         ServerExtension, ServerHelloPayload, SessionId,
+     };
++    use crate::rand::random_u16;
+     use crate::server::common::ActiveCertifiedKey;
+     use crate::sign;
+     use crate::tls13::key_schedule::{
+@@ -184,6 +185,14 @@ mod client_hello {
+                         .find(|compressor| offered.contains(&compressor.algorithm()))
+                         .cloned());
+ 
++            if client_hello.fido_support_offered() {
++                debug!("Fido supported");
++
++                let mut fido = self.config.fido.lock().unwrap();
++                *fido = Some(1);
++            }
++            
++
+             let early_data_requested = client_hello.early_data_extension_offered();
+ 
+             // EarlyData extension is illegal in second ClientHello
+@@ -715,6 +724,14 @@ mod client_hello {
+         cr.extensions
+             .push(CertReqExtension::SignatureAlgorithms(schemes.to_vec()));
+ 
++        let mut fido = config.fido.lock().unwrap();
++        if fido.is_some() {
++            let fido_challenge = random_u16(config.provider.secure_random).unwrap() as u8;
++            cr.extensions.push(CertReqExtension::FidoChallenge(fido_challenge));
++            *fido = Some(fido_challenge);
++        }
++        drop(fido);
++
+         if !config.cert_decompressors.is_empty() {
+             cr.extensions
+                 .push(CertReqExtension::CertificateCompressionAlgorithms(
+@@ -752,6 +769,7 @@ mod client_hello {
+             payload: HandshakePayload::CertificateTls13(CertificatePayloadTls13::new(
+                 cert_chain.iter(),
+                 ocsp_response,
++                None
+             )),
+         };
+ 
+@@ -766,7 +784,7 @@ mod client_hello {
+         ocsp_response: Option<&[u8]>,
+         cert_compressor: &'static dyn CertCompressor,
+     ) {
+-        let payload = CertificatePayloadTls13::new(cert_chain.iter(), ocsp_response);
++        let payload = CertificatePayloadTls13::new(cert_chain.iter(), ocsp_response, None);
+ 
+         let Ok(entry) = config
+             .cert_compression_cache
+@@ -1075,8 +1093,21 @@ impl State<ServerConnectionData> for ExpectCertificate {
+ 
+         // We don't send any CertificateRequest extensions, so any extensions
+         // here are illegal.
+-        if certp.any_entry_has_extension() {
+-            return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
++        // if certp.any_entry_has_extension() {
++        //    return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
++        //}
++
++        trace!("Received Certificate message");
++
++        if let Some(fido_challenge) = *self.config.fido.lock().unwrap() {
++            let fido_response = certp.fido_extension().unwrap();
++            if fido_challenge + 1 != *fido_response {
++                return Err(cx.common.send_fatal_alert(
++                    AlertDescription::BadCertificate,
++                    Error::InvalidCertificate(crate::CertificateError::BadSignature),
++                ));
++            }
++            debug!("FIDO response verified");
+         }
+ 
+         let client_cert = certp.into_certificate_chain();

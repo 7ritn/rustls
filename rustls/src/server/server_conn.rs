@@ -10,6 +10,8 @@ use std::io;
 use pki_types::{DnsName, UnixTime};
 
 use super::hs;
+use crate::fido::state::Fido;
+use crate::lock::Mutex;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
@@ -423,6 +425,9 @@ pub struct ServerConfig {
     ///
     /// [RFC8779]: https://datatracker.ietf.org/doc/rfc8879/
     pub cert_decompressors: Vec<&'static dyn compress::CertDecompressor>,
+
+    /// State of fido authentication
+    pub fido: Arc<Mutex<Option<Fido>>>,
 }
 
 impl ServerConfig {
