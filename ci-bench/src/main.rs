@@ -594,6 +594,7 @@ impl ServerSideStepper<'_> {
             .with_protocol_versions(&[params.version])
             .unwrap()
             .with_client_cert_verifier(WebPkiClientVerifier::no_client_auth())
+            .with_no_fido()
             .with_single_cert(params.key_type.get_chain(), params.key_type.get_key())
             .expect("bad certs/private key?");
 

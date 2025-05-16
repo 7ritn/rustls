@@ -44,8 +44,8 @@ mod client_hello {
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
-    use crate::fido::messages::{FidoAuthenticationRequestOptionals, FidoAuthenticationRequest};
-    use crate::fido::state::Fido;
+    use crate::fido::messages::FidoAuthenticationRequest;
+    use crate::fido::state::FidoServer;
     use crate::msgs::base::{Payload, PayloadU8};
     use crate::msgs::ccs::ChangeCipherSpecPayload;
     use crate::msgs::enums::{Compression, NamedGroup, PskKeyExchangeMode};
@@ -193,7 +193,7 @@ mod client_hello {
                 debug!("Fido supported");
                 if fido_indication.message_type == u8::from(MessageType::AuthenticationIndication) {
                     let mut fido = self.config.fido.lock().unwrap();
-                    *fido = Some(Fido{..Default::default()})
+                    *fido = Some(FidoServer{..Default::default()})
                 }
             }
             

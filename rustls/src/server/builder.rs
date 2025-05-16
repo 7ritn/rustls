@@ -1,11 +1,17 @@
 use alloc::vec::Vec;
+use core::time::Duration;
+use webauthn_rs::prelude::Url;
+use webauthn_rs::WebauthnBuilder;
 use core::marker::PhantomData;
+use std::format;
+use std::string::String;
 
 use pki_types::{CertificateDer, PrivateKeyDer};
 
 use super::{ResolvesServerCert, ServerConfig, handy};
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::error::Error;
+use crate::fido::state::FidoServer;
 use crate::lock::Mutex;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;
@@ -17,9 +23,9 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
     pub fn with_client_cert_verifier(
         self,
         client_cert_verifier: Arc<dyn ClientCertVerifier>,
-    ) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+    ) -> ConfigBuilder<ServerConfig, WantsFido> {
         ConfigBuilder {
-            state: WantsServerCert {
+            state: WantsFido {
                 versions: self.state.versions,
                 verifier: client_cert_verifier,
             },
@@ -30,8 +36,66 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
     }
 
     /// Disable client authentication.
-    pub fn with_no_client_auth(self) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+    pub fn with_no_client_auth(self) -> ConfigBuilder<ServerConfig, WantsFido> {
         self.with_client_cert_verifier(Arc::new(NoClientAuth))
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct WantsFido {
+    versions: versions::EnabledVersions,
+    verifier: Arc<dyn ClientCertVerifier>
+}
+
+impl ConfigBuilder<ServerConfig, WantsFido> {
+    /// Use FIDO
+    pub fn with_fido(
+        self,
+        rp_id: String,
+        rp_name: String,
+        timeout: usize
+    ) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+
+        let rp_origin = Url::parse(&format!("https://{}", rp_id.clone()))
+            .expect("Invalid DN");
+        let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)
+            .expect("Invalid configuration")
+            .rp_name(&rp_name)
+            .timeout(Duration::new(timeout.try_into().unwrap_or_default(), 0))
+            .build()
+            .expect("Couldn't build FIDO verifier");
+        
+        let fido = FidoServer{
+            webauthn: Some(webauthn),
+            ..Default::default()
+        };
+
+        ConfigBuilder {
+            state: WantsServerCert {
+                versions: self.state.versions,
+                verifier: self.state.verifier,
+                fido: Some(fido)
+
+            },
+            provider: self.provider,
+            time_provider: self.time_provider,
+            side: PhantomData,
+        }
+    }
+
+    /// Disable client authentication.
+    pub fn with_no_fido(self) -> ConfigBuilder<ServerConfig, WantsServerCert> {
+        ConfigBuilder {
+            state: WantsServerCert {
+                versions: self.state.versions,
+                verifier: self.state.verifier,
+                fido: None
+
+            },
+            provider: self.provider,
+            time_provider: self.time_provider,
+            side: PhantomData,
+        }
     }
 }
 
@@ -43,6 +107,7 @@ impl ConfigBuilder<ServerConfig, WantsVerifier> {
 pub struct WantsServerCert {
     versions: versions::EnabledVersions,
     verifier: Arc<dyn ClientCertVerifier>,
+    fido: Option<FidoServer>
 }
 
 impl ConfigBuilder<ServerConfig, WantsServerCert> {
@@ -69,6 +134,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
         key_der: PrivateKeyDer<'static>,
     ) -> Result<ServerConfig, Error> {
         let certified_key = CertifiedKey::from_der(cert_chain, key_der, self.crypto_provider())?;
+
         Ok(self.with_cert_resolver(Arc::new(SingleCertAndKey::from(certified_key))))
     }
 
@@ -99,6 +165,8 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
 
     /// Sets a custom [`ResolvesServerCert`].
     pub fn with_cert_resolver(self, cert_resolver: Arc<dyn ResolvesServerCert>) -> ServerConfig {
+
+        
         ServerConfig {
             provider: self.provider,
             verifier: self.state.verifier,

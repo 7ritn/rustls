@@ -496,6 +496,7 @@ pub fn finish_server_config(
     conf: rustls::ConfigBuilder<ServerConfig, rustls::WantsVerifier>,
 ) -> ServerConfig {
     conf.with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap()
 }
@@ -580,6 +581,7 @@ pub fn make_server_config_with_client_verifier(
 ) -> ServerConfig {
     server_config_builder()
         .with_client_cert_verifier(verifier_builder.build().unwrap())
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap()
 }
@@ -594,6 +596,7 @@ pub fn make_server_config_with_raw_key_support(kt: KeyType) -> ServerConfig {
     // We don't support tls1.2 for Raw Public Keys, hence the version is hard-coded.
     server_config_builder_with_versions(&[&rustls::version::TLS13])
         .with_client_cert_verifier(Arc::new(client_verifier))
+        .with_no_fido()
         .with_cert_resolver(server_cert_resolver)
 }
 

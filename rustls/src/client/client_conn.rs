@@ -640,7 +640,7 @@ mod connection {
     use pki_types::ServerName;
 
     use super::ClientConnectionData;
-    use crate::fido::enums::MessageType;
+    
     use crate::fido::messages::FidoAuthenticationIndication;
     use crate::msgs::handshake::ClientExtension;
     use crate::ClientConfig;

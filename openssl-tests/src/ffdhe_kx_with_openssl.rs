@@ -213,6 +213,7 @@ fn server_config_with_ffdhe_kx(protocol: &'static SupportedProtocolVersion) -> S
         .with_protocol_versions(&[protocol])
         .unwrap()
         .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(load_certs(), load_private_key())
         .unwrap()
 }

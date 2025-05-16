@@ -50,6 +50,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
     let config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(verifier)
+        .with_no_fido()
         .with_single_cert(certs, private_key)?;
 
     let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();

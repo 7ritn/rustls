@@ -784,6 +784,7 @@ impl Parameters {
             .with_protocol_versions(&[self.proto.version])
             .unwrap()
             .with_client_cert_verifier(client_auth)
+            .with_no_fido()
             .with_single_cert(
                 self.proto.key_type.get_chain(),
                 self.proto.key_type.get_key(),

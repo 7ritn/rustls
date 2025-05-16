@@ -42,6 +42,7 @@ log = { workspace = true, optional = true }
 # only required for no-std
 once_cell = { workspace = true }
 ring = { workspace = true, optional = true }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_tuple = { workspace = true }
 serde_cbor = { workspace = true }
@@ -51,19 +52,23 @@ webpki = { workspace = true }
 pki-types = { workspace = true }
 zeroize = { workspace = true }
 zlib-rs = { workspace = true, optional = true }
+webauthn-rs = { workspace = true }
+webauthn-attestation-ca = { workspace = true }
+webauthn-rs-device-catalog = { workspace = true }
+webauthn-rs-proto = { workspace = true }
+x509-parser = { workspace = true }
 
 [dev-dependencies]
 base64 = { workspace = true }
 bencher = { workspace = true }
 env_logger = { workspace = true }
-hex = { workspace = true }
+hex = { workspace = true } 
 log = { workspace = true }
 macro_rules_attribute = { workspace = true }
 num-bigint = { workspace = true }
 rcgen = { workspace = true }
 time = { workspace = true }
 webpki-roots = { workspace = true }
-x509-parser = { workspace = true }
 
 [[bench]]
 name = "benchmarks"

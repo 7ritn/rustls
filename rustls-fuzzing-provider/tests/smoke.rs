@@ -81,6 +81,7 @@ fn test_version(version: &'static SupportedProtocolVersion) -> Transcript {
             .with_protocol_versions(&[version])
             .unwrap()
             .with_no_client_auth()
+            .with_no_fido()
             .with_cert_resolver(rustls_fuzzing_provider::server_cert_resolver());
     let mut server = ServerConnection::new(server_config.into()).unwrap();
 

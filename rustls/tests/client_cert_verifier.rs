@@ -39,6 +39,7 @@ fn server_config_with_verifier(
 ) -> ServerConfig {
     server_config_builder()
         .with_client_cert_verifier(Arc::new(client_cert_verifier))
+        .with_no_fido()
         .with_single_cert(kt.get_chain(), kt.get_key())
         .unwrap()
 }
