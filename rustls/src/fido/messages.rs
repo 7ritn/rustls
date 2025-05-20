@@ -40,8 +40,8 @@ pub(crate) struct FidoRegistrationRequest {
     pub challenge: Vec<u8>,
     pub rp_id: String,
     pub rp_name: String,
-    pub user_name: String,
-    pub user_display_name: String,
+    pub user_name: Vec<u8>,
+    pub user_display_name: Vec<u8>,
     pub user_id: Vec<u8>,
     pub pubkey_cred_params: Vec<FidoPublicKeyAlgorithms>,
     pub optionals: FidoRegistrationRequestOptionals
@@ -78,8 +78,7 @@ pub(crate) struct FidoRegistrationResponse {
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
 pub struct FidoAuthenticationIndication {
-    pub message_type: u8,
-    pub ephem_user_id: Vec<u8>
+    pub message_type: u8
 }
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
@@ -135,6 +134,30 @@ pub(crate) struct FidoAuthenticationResponseOptionals {
     pub client_extension_output: Option<Vec<FidoExtension>>
 }
 
+// Group Enums
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FidoIndication {
+    PreRegistration(FidoPreRegistrationIndication),
+    Registration(FidoRegistrationIndication),
+    Authentication(FidoAuthenticationIndication)
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FidoRequest {
+    PreRegistration(FidoPreRegistrationRequest),
+    Registration(FidoRegistrationRequest),
+    Authentication(FidoAuthenticationRequest)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FidoResponse {
+    PreRegistration(FidoPreRegistrationResponse),
+    Registration(FidoRegistrationResponse),
+    Authentication(FidoAuthenticationResponse)
+}
+
 // Implement Constructors
 
 impl FidoPreRegistrationIndication {
@@ -180,8 +203,8 @@ impl FidoRegistrationRequest {
         challenge: Vec<u8>, 
         rp_id: String, 
         rp_name: String, 
-        user_name: String, 
-        user_display_name: String, 
+        user_name: Vec<u8>, 
+        user_display_name: Vec<u8>, 
         user_id: Vec<u8>, 
         pubkey_cred_params: Vec<FidoPublicKeyAlgorithms>, 
         options: Option<FidoRegistrationRequestOptionals>
@@ -211,10 +234,9 @@ impl FidoRegistrationResponse {
 }
 
 impl FidoAuthenticationIndication {
-    pub fn new(user_id: Vec<u8>) -> Self {
+    pub fn new() -> Self {
         Self { 
-            message_type: MessageType::AuthenticationIndication.into(), 
-            ephem_user_id: user_id
+            message_type: MessageType::AuthenticationIndication.into()
         }
     }
 }
@@ -267,3 +289,7 @@ impl_codec_for!(FidoRegistrationResponse, "Could not parse FIDO registration res
 impl_codec_for!(FidoAuthenticationIndication, "Could not parse FIDO authentication indication");
 impl_codec_for!(FidoAuthenticationRequest, "Could not parse FIDO authentication request");
 impl_codec_for!(FidoAuthenticationResponse, "Could not parse FIDO authentication response");
+
+impl_codec_for!(FidoIndication, "Could not parse FIDO indication");
+impl_codec_for!(FidoRequest, "Could not parse FIDO request");
+impl_codec_for!(FidoResponse, "Could not parse FIDO response");

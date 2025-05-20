@@ -11,6 +11,7 @@ use pki_types::{CertificateDer, PrivateKeyDer};
 use super::{ResolvesServerCert, ServerConfig, handy};
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::error::Error;
+use crate::fido::db::FidoDB;
 use crate::fido::state::FidoServer;
 use crate::lock::Mutex;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
@@ -65,10 +66,13 @@ impl ConfigBuilder<ServerConfig, WantsFido> {
             .build()
             .expect("Couldn't build FIDO verifier");
         
-        let fido = FidoServer{
-            webauthn: Some(webauthn),
-            ..Default::default()
-        };
+        let fido = Arc::new(Mutex::new(FidoServer{
+            webauthn,
+            db: FidoDB::new("./fido.db3"),
+            challenge: None,
+            ticket: std::vec![1, 2, 3],
+            registration_state: Default::default()
+        }));
 
         ConfigBuilder {
             state: WantsServerCert {
@@ -107,7 +111,7 @@ impl ConfigBuilder<ServerConfig, WantsFido> {
 pub struct WantsServerCert {
     versions: versions::EnabledVersions,
     verifier: Arc<dyn ClientCertVerifier>,
-    fido: Option<FidoServer>
+    fido: Option<Arc<Mutex<FidoServer>>>
 }
 
 impl ConfigBuilder<ServerConfig, WantsServerCert> {
@@ -191,7 +195,7 @@ impl ConfigBuilder<ServerConfig, WantsServerCert> {
             cert_compressors: compress::default_cert_compressors().to_vec(),
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
-            fido: Arc::new(Mutex::new(None))
+            fido: self.state.fido
         }
     }
 }

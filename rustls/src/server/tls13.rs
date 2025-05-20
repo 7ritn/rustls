@@ -40,11 +40,14 @@ use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 use crate::fido::enums::MessageType;
 
 mod client_hello {
+    use core::str::FromStr;
+    use std::string::String;
+
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
-    use crate::fido::messages::FidoAuthenticationRequest;
+    use crate::fido::messages::{FidoAuthenticationRequest, FidoIndication, FidoPreRegistrationRequest, FidoRequest};
     use crate::fido::state::FidoServer;
     use crate::msgs::base::{Payload, PayloadU8};
     use crate::msgs::ccs::ChangeCipherSpecPayload;
@@ -54,7 +57,7 @@ mod client_hello {
         ClientHelloPayload, HelloRetryExtension, HelloRetryRequest, KeyShareEntry, Random,
         ServerExtension, ServerHelloPayload, SessionId,
     };
-    use crate::rand::random_u16;
+    use crate::rand::{random_u16, random_vec};
     use crate::server::common::ActiveCertifiedKey;
     use crate::sign;
     use crate::tls13::key_schedule::{
@@ -189,13 +192,7 @@ mod client_hello {
                         .find(|compressor| offered.contains(&compressor.algorithm()))
                         .cloned());
 
-            if let Some(fido_indication) = client_hello.fido_indicated() {
-                debug!("Fido supported");
-                if fido_indication.message_type == u8::from(MessageType::AuthenticationIndication) {
-                    let mut fido = self.config.fido.lock().unwrap();
-                    *fido = Some(FidoServer{..Default::default()})
-                }
-            }
+            let fido_indication = client_hello.fido_indicated();
             
 
             let early_data_requested = client_hello.early_data_extension_offered();
@@ -387,7 +384,7 @@ mod client_hello {
             )?;
 
             let doing_client_auth = if full_handshake {
-                let client_auth = emit_certificate_req_tls13(&mut flight, &self.config)?;
+                let client_auth = emit_certificate_req_tls13(&mut flight, &self.config, fido_indication)?;
 
                 if let Some(compressor) = cert_compressor {
                     emit_compressed_certificate_tls13(
@@ -713,6 +710,7 @@ mod client_hello {
     fn emit_certificate_req_tls13(
         flight: &mut HandshakeFlightTls13<'_>,
         config: &ServerConfig,
+        fido_option: Option<FidoIndication>
     ) -> Result<bool, Error> {
         if !config.verifier.offer_client_auth() {
             return Ok(false);
@@ -729,13 +727,34 @@ mod client_hello {
         cr.extensions
             .push(CertReqExtension::SignatureAlgorithms(schemes.to_vec()));
 
-        let mut fido_option = config.fido.lock().unwrap();
-        if let Some(fido) = fido_option.as_mut() {
-            let fido_challenge = vec![random_u16(config.provider.secure_random).unwrap() as u8];
-            cr.extensions.push(CertReqExtension::FidoAuthenticationRequest(FidoAuthenticationRequest::new(fido_challenge.clone(), None)));
-            fido.challenge = Some(fido_challenge);
-        }
-        drop(fido_option);
+        if let Some(fido_indication) = fido_option {
+            let fido_server_option = config.fido.as_ref().unwrap();
+            let mut fido = fido_server_option.lock().unwrap();
+
+            let fido_request;
+
+            match fido_indication {
+                FidoIndication::Authentication(_) => 
+                {
+                    let (fido_authentication_request, sas) = fido.clone().start_authentication_fido()?;
+                    fido_request = FidoRequest::Authentication(fido_authentication_request);
+                }
+                FidoIndication::PreRegistration(_) =>
+                {
+                    let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
+                    let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
+                    fido_request = FidoRequest::PreRegistration(FidoPreRegistrationRequest::new(ephem_user_id, gcm_key));
+                    // Need to remember both
+                },
+                FidoIndication::Registration(fido_registration_indication) =>
+                {
+                    let registration_request = fido.get_registration_request(&fido_registration_indication.ephem_user_id)?;
+                    fido_request = FidoRequest::Registration(registration_request.clone())
+                },
+            }
+
+            cr.extensions.push(CertReqExtension::FidoRequest(fido_request));
+        };
 
         if !config.cert_decompressors.is_empty() {
             cr.extensions

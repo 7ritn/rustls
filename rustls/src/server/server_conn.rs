@@ -427,7 +427,7 @@ pub struct ServerConfig {
     pub cert_decompressors: Vec<&'static dyn compress::CertDecompressor>,
 
     /// State of fido authentication
-    pub fido: Arc<Mutex<Option<FidoServer>>>,
+    pub fido: Option<Arc<Mutex<FidoServer>>>,
 }
 
 impl ServerConfig {

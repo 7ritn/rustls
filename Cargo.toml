@@ -89,7 +89,7 @@ subtle = { version = "2.5.0", default-features = false }
 time = { version = "0.3.6", default-features = false }
 tikv-jemallocator = "0.6"
 tokio = { version = "1.34", features = ["io-util", "macros", "net", "rt"] }
-webauthn-rs = "0.5.1"
+webauthn-rs = { version = "0.5.1", features = ["conditional-ui"] }
 webauthn-attestation-ca= "0.5.1"
 webauthn-rs-device-catalog = "0.5.0-20230418"
 webauthn-rs-proto = "0.5.1"
