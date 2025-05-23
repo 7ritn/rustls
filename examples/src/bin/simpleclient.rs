@@ -16,7 +16,11 @@ use std::sync::Arc;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::RootCertStore;
-use rustls_pemfile::certs; // This is the function you're missing
+use rustls_pemfile::certs;
+use rustls::fido::enums::FidoMode;
+use rustls::fido::state::FidoClient;
+use rustls::lock::Mutex;
+// This is the function you're missing
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
@@ -42,10 +46,23 @@ fn main() {
         .map(Result::unwrap)
         .collect();
     let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/target/debug/tls-certs/client.key.pem").unwrap();
-
+    
+    let persistent_reg_state = Arc::new(Mutex::new(None));
+    
+    let fido = FidoClient{
+        mode: FidoMode::Authentication,
+        user_name: "emily".to_string(),
+        user_display_name: "emily".to_string(),
+        user_id: "emily".as_bytes().to_vec(),
+        ticket: Some(vec![4,3,2,1]),
+        fido_device_pin: "1234".to_string(),
+        persistent_reg_state: persistent_reg_state.clone(),
+        response_buffer: Arc::new(Mutex::new(None)),
+    };
+    
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
-        .with_client_auth_fido(client_cert, client_key)
+        .with_client_auth_fido(client_cert, client_key, fido)
         .unwrap();
 
     // Allow using SSLKEYLOGFILE.

@@ -23,6 +23,8 @@ use crate::conn::ConnectionRandoms;
 use crate::crypto::{ActiveKeyExchange, KeyExchangeAlgorithm};
 use crate::enums::{AlertDescription, CipherSuite, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
+use crate::fido::enums::FidoMode;
+use crate::fido::messages::{FidoAuthenticationIndication, FidoIndication, FidoPreRegistrationIndication, FidoRegistrationIndication};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
@@ -401,6 +403,31 @@ fn emit_client_hello_for_retry(
         exts.push(ClientExtension::ServerCertTypes(vec![
             CertificateType::RawPublicKey,
         ]));
+    }
+
+    if let Some(fido) = config.fido.as_ref()
+    {
+        let indication;
+        match fido.mode {
+            FidoMode::Registration => {
+                let binding = fido.persistent_reg_state.lock().unwrap();
+                let registration_state = binding.as_ref();
+                match registration_state {
+                    None => {
+                        // Pre Registration\
+                        indication = FidoIndication::PreRegistration(FidoPreRegistrationIndication::new())
+                    }
+                    Some(reg_state) => {
+                        // Registration
+                        indication = FidoIndication::Registration(FidoRegistrationIndication::new(reg_state.ephem_user_id.clone()))
+                    }
+                }
+            }
+            FidoMode::Authentication => {
+                indication = FidoIndication::Authentication(FidoAuthenticationIndication::new());
+            }
+        }
+        exts.push(ClientExtension::FidoIndication(indication));
     }
 
     // Extra extensions must be placed before the PSK extension

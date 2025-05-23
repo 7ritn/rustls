@@ -1818,7 +1818,7 @@ impl<'a> CertificatePayloadTls13<'a> {
     pub(crate) fn new(
         certs: impl Iterator<Item = &'a CertificateDer<'a>>,
         ocsp_response: Option<&'a [u8]>,
-        fido_challenge: Option<u8>
+        fido_response: Option<FidoResponse>
     ) -> Self {
         Self {
             context: PayloadU8::empty(),
@@ -1840,16 +1840,8 @@ impl<'a> CertificatePayloadTls13<'a> {
                             ));
                     }
 
-                    if let Some(value) = fido_challenge {
-                        let response = FidoAuthenticationResponse::new(
-                            "".to_owned(),
-                            vec![],
-                            vec![value + 1],
-                            None
-                        );
-
-                        // ToDo
-                        e.exts.push(CertificateExtension::FidoResponse(FidoResponse::Authentication(response)));
+                    if let Some(response) = fido_response.clone() {
+                        e.exts.push(CertificateExtension::FidoResponse(response));
                     }
 
                     e

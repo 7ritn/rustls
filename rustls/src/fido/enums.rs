@@ -1,4 +1,8 @@
+use std::vec::Vec;
+use std::convert::TryFrom;
+
 use serde::{Deserialize, Serialize};
+use webauthn_rs::prelude::DiscoverableAuthentication;
 
 use crate::msgs::codec::{Codec, Reader};
 
@@ -24,7 +28,7 @@ pub enum FidoMode {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FidoState {
+pub(crate) enum FidoState {
     #[default]
     Initial,
     AuthInitial,
@@ -72,14 +76,14 @@ pub(crate) enum FidoPublicKeyAlgorithms {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum FidoAuthenticatorAttachment {
+pub enum FidoAuthenticatorAttachment {
     Platform = 0,
     CrossPlatform = 1,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum FidoPolicy {
+pub enum FidoPolicy {
     Required = 0,
     Preferred = 1,
     Discouraged = 2
@@ -87,7 +91,7 @@ pub(crate) enum FidoPolicy {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[repr(u8)]
-pub(crate) enum FidoAuthenticatorTransport {
+pub enum FidoAuthenticatorTransport {
     USB = 0,
     NFC = 1,
     BLE = 2,
@@ -101,4 +105,11 @@ pub(crate) enum FidoRegistrationAttestation {
     Indirect = 1,
     Direct = 2,
     Enterprise = 3,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum FidoHandshakeState {
+    SAS(DiscoverableAuthentication),
+    UserId(Vec<u8>),
+    EphemUserId(Vec<u8>)
 }

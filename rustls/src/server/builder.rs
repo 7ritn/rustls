@@ -1,17 +1,11 @@
 use alloc::vec::Vec;
-use core::time::Duration;
-use webauthn_rs::prelude::Url;
-use webauthn_rs::WebauthnBuilder;
 use core::marker::PhantomData;
-use std::format;
-use std::string::String;
 
 use pki_types::{CertificateDer, PrivateKeyDer};
 
 use super::{ResolvesServerCert, ServerConfig, handy};
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::error::Error;
-use crate::fido::db::FidoDB;
 use crate::fido::state::FidoServer;
 use crate::lock::Mutex;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
@@ -52,27 +46,9 @@ impl ConfigBuilder<ServerConfig, WantsFido> {
     /// Use FIDO
     pub fn with_fido(
         self,
-        rp_id: String,
-        rp_name: String,
-        timeout: usize
+        config: FidoServer
     ) -> ConfigBuilder<ServerConfig, WantsServerCert> {
-
-        let rp_origin = Url::parse(&format!("https://{}", rp_id.clone()))
-            .expect("Invalid DN");
-        let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)
-            .expect("Invalid configuration")
-            .rp_name(&rp_name)
-            .timeout(Duration::new(timeout.try_into().unwrap_or_default(), 0))
-            .build()
-            .expect("Couldn't build FIDO verifier");
-        
-        let fido = Arc::new(Mutex::new(FidoServer{
-            webauthn,
-            db: FidoDB::new("./fido.db3"),
-            challenge: None,
-            ticket: std::vec![1, 2, 3],
-            registration_state: Default::default()
-        }));
+        let fido = Arc::new(Mutex::new(config));
 
         ConfigBuilder {
             state: WantsServerCert {

@@ -6,7 +6,7 @@ use serde_cbor::ser::to_vec_packed;
 
 use crate::{msgs::codec::{Codec, Reader}, InvalidMessage};
 
-use super::enums::{FidoAuthenticatorAttachment, FidoAuthenticatorTransport, FidoPolicy, FidoPublicKeyAlgorithms, FidoRegistrationAttestation, MessageType};
+use super::enums::{FidoAuthenticatorAttachment, FidoAuthenticatorTransport, FidoPolicy, FidoPublicKeyAlgorithms, MessageType};
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
 pub(crate) struct FidoPreRegistrationIndication {
@@ -40,9 +40,9 @@ pub(crate) struct FidoRegistrationRequest {
     pub challenge: Vec<u8>,
     pub rp_id: String,
     pub rp_name: String,
-    pub user_name: Vec<u8>,
-    pub user_display_name: Vec<u8>,
-    pub user_id: Vec<u8>,
+    pub enc_user_name: Vec<u8>,
+    pub enc_user_display_name: Vec<u8>,
+    pub enc_user_id: Vec<u8>,
     pub pubkey_cred_params: Vec<FidoPublicKeyAlgorithms>,
     pub optionals: FidoRegistrationRequestOptionals
 }
@@ -52,13 +52,13 @@ pub(crate) struct FidoRegistrationRequestOptionals {
     #[serde(rename = "1")]
     pub timeout: Option<u32>,
     #[serde(rename = "2")]
-    pub authenticator_selection: Option<FidoRegistrationAuthenticatorSelection>,
+    pub enc_authenticator_selection: Option<Vec<u8>>,
     #[serde(rename = "3")]
-    pub excluded_credentials: Option<Vec<FidoCredential>>,
+    pub enc_excluded_credentials: Option<Vec<u8>>,
     #[serde(rename = "4")]
-    pub attestation: Option<FidoRegistrationAttestation>,
+    pub enc_attestation: Option<Vec<u8>>,
     #[serde(rename = "5")]
-    pub extensions: Option<Vec<FidoExtension>>
+    pub enc_extensions: Option<Vec<u8>>
 }
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
@@ -74,6 +74,16 @@ pub(crate) struct FidoRegistrationResponse {
     pub message_type: u8,
     pub attestation_object: Vec<u8>,
     pub client_data_json: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub(crate)  struct FidoClientData {
+    #[serde(rename = "type")]
+    pub mode: String,
+    pub challenge_b64: String,
+    pub origin: String,
+    pub cross_origin: bool
+
 }
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
@@ -190,10 +200,10 @@ impl FidoPreRegistrationResponse {
 }
 
 impl FidoRegistrationIndication {
-    pub(crate) fn new(user_id: Vec<u8>) -> Self {
+    pub(crate) fn new(ephem_user_id: Vec<u8>) -> Self {
         Self { 
             message_type: MessageType::RegistrationIndication.into(), 
-            ephem_user_id: user_id
+            ephem_user_id
         }
     }
 }
@@ -214,11 +224,20 @@ impl FidoRegistrationRequest {
             challenge,
             rp_id,
             rp_name,
-            user_name,
-            user_display_name,
-            user_id,
+            enc_user_name: user_name,
+            enc_user_display_name: user_display_name,
+            enc_user_id: user_id,
             pubkey_cred_params,
             optionals: options.unwrap_or_default()
+        }
+    }
+}
+impl Default for FidoRegistrationAuthenticatorSelection {
+    fn default() -> Self {
+        Self {
+            attachment: FidoAuthenticatorAttachment::CrossPlatform,
+            resident_key: FidoPolicy::Required,
+            user_verification: FidoPolicy::Preferred,
         }
     }
 }

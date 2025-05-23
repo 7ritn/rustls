@@ -38,6 +38,7 @@ default-members = [
 resolver = "2"
 
 [workspace.dependencies]
+authenticator = { version = "0.4.1", default-features = false, features = ["crypto_openssl", ] }
 anyhow = "1.0.73"
 asn1 = "0.21"
 async-std = { version = "1.12.0", features = ["attributes"] }
@@ -90,8 +91,6 @@ time = { version = "0.3.6", default-features = false }
 tikv-jemallocator = "0.6"
 tokio = { version = "1.34", features = ["io-util", "macros", "net", "rt"] }
 webauthn-rs = { version = "0.5.1", features = ["conditional-ui"] }
-webauthn-attestation-ca= "0.5.1"
-webauthn-rs-device-catalog = "0.5.0-20230418"
 webauthn-rs-proto = "0.5.1"
 webpki = { package = "rustls-webpki", version = "0.103.2", features = ["alloc"], default-features = false }
 webpki-roots = "0.26"

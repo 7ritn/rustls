@@ -48,6 +48,8 @@ use crate::tls13::{
 use crate::verify::{self, DigitallySignedStruct};
 use crate::{ConnectionTrafficSecrets, KeyLog, compress, crypto};
 
+use crate::fido::messages::{FidoRequest, FidoResponse};
+
 // Extensions we expect in plaintext in the ServerHello.
 static ALLOWED_PLAINTEXT_EXTS: &[ExtensionType] = &[
     ExtensionType::KeyShare,
@@ -894,12 +896,29 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
             })
             .cloned();
 
-        let fido_challenge = certreq.fido_extension().unwrap();
-        debug!("FIDO challenge received: {:?}", fido_challenge);
-        let mut binding = self.config.fido.lock().unwrap();
-        let fido_state = binding.as_mut().unwrap();
-        fido_state.challenge = Some(fido_challenge.challenge);
-        drop(binding);
+        if let Some(fido_request) = certreq.fido_extension() {
+            if let Some(fido) = self.config.fido.as_ref() {
+                debug!("FIDO challenge received: {:?}", fido_request);
+                match fido_request {
+                    FidoRequest::PreRegistration(request) => {
+                        fido.pre_register_fido(request.ephem_user_id, request.gcm_key);
+                    }
+                    FidoRequest::Registration(request) => {
+                        // Verify rp id
+                        if self.server_name.to_str() != request.rp_id {
+                            return Err(Error::General("mismatch rp id and server name".into()))
+                        }
+                        fido.register_fido(request)?;
+                    }
+                    FidoRequest::Authentication(request) => {
+                        if self.server_name.to_str() != request.optionals.rpid.clone().unwrap() {
+                            return Err(Error::General("mismatch rp id and server name".into()))
+                        }
+                        fido.authenticate_fido(request)?;
+                    }
+                }
+            }
+        }
 
         let client_auth = ClientAuthDetails::resolve(
             self.config
@@ -1246,12 +1265,12 @@ fn emit_certificate_tls13(
     flight: &mut HandshakeFlightTls13<'_>,
     certkey: Option<&CertifiedKey>,
     auth_context: Option<Vec<u8>>,
-    fido_challenge: Option<u8>
+    fido: Option<FidoResponse>
 ) {
     let certs = certkey
         .map(|ck| ck.cert.as_ref())
         .unwrap_or(&[][..]);
-    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None, fido_challenge);
+    let mut cert_payload = CertificatePayloadTls13::new(certs.iter(), None, fido);
     cert_payload.context = PayloadU8::new(auth_context.unwrap_or_default());
 
     flight.add(HandshakeMessagePayload {
@@ -1359,6 +1378,12 @@ impl State<ClientConnectionData> for ExpectFinished {
 
         let mut flight = HandshakeFlightTls13::new(&mut st.transcript);
 
+        let mut fido_response = None;
+        if let Some(fido_client) = st.config.fido.as_ref() {
+            let mut buffer = fido_client.response_buffer.lock().unwrap();
+            fido_response = buffer.take();
+        }
+
         /* Send our authentication/finished messages.  These are still encrypted
          * with our handshake keys. */
         if let Some(client_auth) = st.client_auth {
@@ -1366,7 +1391,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 ClientAuthDetails::Empty {
                     auth_context_tls13: auth_context,
                 } => {
-                    emit_certificate_tls13(&mut flight, None, auth_context, None);
+                    emit_certificate_tls13(&mut flight, None, auth_context, fido_response);
                 }
                 ClientAuthDetails::Verify {
                     auth_context_tls13: auth_context,
@@ -1374,7 +1399,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                 } if cx.data.ech_status == EchStatus::Rejected => {
                     // If ECH was offered, and rejected, we MUST respond with
                     // an empty certificate message.
-                    emit_certificate_tls13(&mut flight, None, auth_context, None);
+                    emit_certificate_tls13(&mut flight, None, auth_context, fido_response);
                 }
                 ClientAuthDetails::Verify {
                     certkey,
@@ -1391,8 +1416,7 @@ impl State<ClientConnectionData> for ExpectFinished {
                             &st.config,
                         );
                     } else {
-                        let fido = st.config.fido.lock().unwrap();
-                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context, Some(fido.clone().unwrap().challenge.unwrap()[0]));
+                        emit_certificate_tls13(&mut flight, Some(&certkey), auth_context, fido_response);
                     }
                     emit_certverify_tls13(&mut flight, signer.as_ref())?;
                 }

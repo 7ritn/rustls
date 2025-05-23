@@ -16,6 +16,8 @@ use crate::conn::ConnectionRandoms;
 use crate::conn::kernel::{Direction, KernelContext, KernelState};
 use crate::enums::{AlertDescription, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, InvalidMessage, PeerIncompatible, PeerMisbehaved};
+use crate::fido::enums::FidoHandshakeState;
+use crate::fido::messages::FidoResponse;
 use crate::hash_hs::HandshakeHash;
 use crate::log::{debug, trace, warn};
 use crate::msgs::codec::{Codec, Reader};
@@ -37,18 +39,15 @@ use crate::tls13::{
 };
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
-use crate::fido::enums::MessageType;
-
 mod client_hello {
-    use core::str::FromStr;
-    use std::string::String;
+
+    use webauthn_rs::prelude::DiscoverableAuthentication;
 
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
     use crate::enums::SignatureScheme;
-    use crate::fido::messages::{FidoAuthenticationRequest, FidoIndication, FidoPreRegistrationRequest, FidoRequest};
-    use crate::fido::state::FidoServer;
+    use crate::fido::messages::{FidoIndication, FidoRequest};
     use crate::msgs::base::{Payload, PayloadU8};
     use crate::msgs::ccs::ChangeCipherSpecPayload;
     use crate::msgs::enums::{Compression, NamedGroup, PskKeyExchangeMode};
@@ -57,7 +56,7 @@ mod client_hello {
         ClientHelloPayload, HelloRetryExtension, HelloRetryRequest, KeyShareEntry, Random,
         ServerExtension, ServerHelloPayload, SessionId,
     };
-    use crate::rand::{random_u16, random_vec};
+    use crate::rand::random_vec;
     use crate::server::common::ActiveCertifiedKey;
     use crate::sign;
     use crate::tls13::key_schedule::{
@@ -193,6 +192,7 @@ mod client_hello {
                         .cloned());
 
             let fido_indication = client_hello.fido_indicated();
+            let mut fido_handshake_state = None;
             
 
             let early_data_requested = client_hello.early_data_extension_offered();
@@ -384,7 +384,8 @@ mod client_hello {
             )?;
 
             let doing_client_auth = if full_handshake {
-                let client_auth = emit_certificate_req_tls13(&mut flight, &self.config, fido_indication)?;
+                let (client_auth, sas) = emit_certificate_req_tls13(&mut flight, &self.config, fido_indication)?;
+                fido_handshake_state = Some(FidoHandshakeState::SAS(sas.unwrap()));
 
                 if let Some(compressor) = cert_compressor {
                     emit_compressed_certificate_tls13(
@@ -457,6 +458,7 @@ mod client_hello {
                         key_schedule: key_schedule_traffic,
                         send_tickets: self.send_tickets,
                         message_already_in_transcript: false,
+                        fido_handshake_state
                     }))
                 } else {
                     Ok(Box::new(ExpectCertificateOrCompressedCertificate {
@@ -711,9 +713,10 @@ mod client_hello {
         flight: &mut HandshakeFlightTls13<'_>,
         config: &ServerConfig,
         fido_option: Option<FidoIndication>
-    ) -> Result<bool, Error> {
+    ) -> Result<(bool, Option<DiscoverableAuthentication>), Error> {
+        let mut fido_authentication_server_state = None;
         if !config.verifier.offer_client_auth() {
-            return Ok(false);
+            return Ok((false, fido_authentication_server_state));
         }
 
         let mut cr = CertificateRequestPayloadTls13 {
@@ -737,14 +740,15 @@ mod client_hello {
                 FidoIndication::Authentication(_) => 
                 {
                     let (fido_authentication_request, sas) = fido.clone().start_authentication_fido()?;
+                    fido_authentication_server_state = Some(sas);
                     fido_request = FidoRequest::Authentication(fido_authentication_request);
                 }
                 FidoIndication::PreRegistration(_) =>
                 {
                     let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
                     let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
-                    fido_request = FidoRequest::PreRegistration(FidoPreRegistrationRequest::new(ephem_user_id, gcm_key));
-                    // Need to remember both
+                    let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id, gcm_key);
+                    fido_request = FidoRequest::PreRegistration(fido_pre_registration_request);
                 },
                 FidoIndication::Registration(fido_registration_indication) =>
                 {
@@ -780,7 +784,7 @@ mod client_hello {
 
         trace!("Sending CertificateRequest {:?}", creq);
         flight.add(creq);
-        Ok(true)
+        Ok((true, fido_authentication_server_state))
     }
 
     fn emit_certificate_tls13(
@@ -955,6 +959,7 @@ impl State<ServerConnectionData> for ExpectCertificateOrCompressedCertificate {
                 key_schedule: self.key_schedule,
                 send_tickets: self.send_tickets,
                 message_already_in_transcript: false,
+                fido_handshake_state: None
             })
             .handle(cx, m),
 
@@ -1079,6 +1084,7 @@ impl State<ServerConnectionData> for ExpectCompressedCertificate {
             key_schedule: self.key_schedule,
             send_tickets: self.send_tickets,
             message_already_in_transcript: true,
+            fido_handshake_state: None
         })
         .handle(cx, m)
     }
@@ -1095,6 +1101,7 @@ struct ExpectCertificate {
     key_schedule: KeyScheduleTrafficWithClientFinishedPending,
     send_tickets: usize,
     message_already_in_transcript: bool,
+    fido_handshake_state: Option<FidoHandshakeState>
 }
 
 impl State<ServerConnectionData> for ExpectCertificate {
@@ -1123,16 +1130,43 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         trace!("Received Certificate message");
 
-        if let Some(fido) = self.config.fido.lock().unwrap().as_ref() {
-            let fido_response = certp.fido_extension().unwrap();
-            let fido_challenge = fido.challenge.clone().unwrap()[0];
-            if vec![fido_challenge + 1] != fido_response.signature {
-                return Err(cx.common.send_fatal_alert(
-                    AlertDescription::BadCertificate,
-                    Error::InvalidCertificate(crate::CertificateError::BadSignature),
-                ));
+        if let Some(fido) = &self.config.fido {
+            if self.fido_handshake_state.is_some() {
+                let mut fido = fido.lock().unwrap();
+                let fido_response = certp.fido_extension().ok_or(Error::General("Fido Extension missing".into()))?;
+                match fido_response {
+                    FidoResponse::Authentication(fido_authentication_response) => {
+                        let sas = match self.fido_handshake_state {
+                            Some(FidoHandshakeState::SAS(sas)) => sas,
+                            _ => return Err(Error::General("SAS missing".into()))
+                        };
+                        fido.finish_authentication_fido(fido_authentication_response.clone(), sas)?;
+                    },
+                    FidoResponse::PreRegistration(fido_pre_registration_response) => {
+                        let ephem_user_id = match self.fido_handshake_state {
+                            Some(FidoHandshakeState::EphemUserId(id)) => id,
+                            _ => return Err(Error::General("ephem_user_id missing".into()))
+                        };
+                        fido.start_register_fido(
+                            ephem_user_id, 
+                            fido_pre_registration_response.ticket.clone(), 
+                            fido_pre_registration_response.user_name.clone(), 
+                            fido_pre_registration_response.user_display_name.clone()
+                        )?;
+                    },
+                    FidoResponse::Registration(fido_registration_response) => {
+                        let user_id = match self.fido_handshake_state {
+                            Some(FidoHandshakeState::UserId(id)) => id,
+                            _ => return Err(Error::General("user_id missing".into()))
+                        };
+                        fido.finish_register_fido(
+                            user_id,
+                            fido_registration_response.client_data_json.clone(), 
+                            fido_registration_response.attestation_object.clone()
+                        )?;
+                    },
+                }
             }
-            debug!("FIDO response verified");
         }
 
         let client_cert = certp.into_certificate_chain();

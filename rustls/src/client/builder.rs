@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 use core::marker::PhantomData;
-use std::sync::Mutex;
-
+use std::prelude::rust_2024::ToString;
 use pki_types::{CertificateDer, PrivateKeyDer};
 
 use super::client_conn::Resumption;
@@ -15,6 +14,7 @@ use crate::sync::Arc;
 use crate::versions::TLS13;
 use crate::webpki::{self, WebPkiServerVerifier};
 use crate::{WantsVersions, compress, verify, versions};
+use crate::fido::enums::FidoMode;
 
 impl ConfigBuilder<ClientConfig, WantsVersions> {
     /// Enable Encrypted Client Hello (ECH) in the given mode.
@@ -159,9 +159,13 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
     pub fn with_client_auth_fido(
         self,
         cert_chain: Vec<CertificateDer<'static>>,
-        key_der: PrivateKeyDer<'static>
+        key_der: PrivateKeyDer<'static>,
+        fido: FidoClient
     ) -> Result<ClientConfig, Error> {
         let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
+        if fido.mode == FidoMode::Registration && fido.ticket.is_none() {
+            return Err(Error::General("If fido.mode == registration, ticket is required".to_string()))
+        }
         Ok(ClientConfig {
             provider: self.provider,
             alpn_protocols: Vec::new(),
@@ -181,7 +185,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
             ech_mode: self.state.client_ech_mode,
-            fido: Arc::new(Mutex::new(Some(FidoClient{..Default::default()})))
+            fido: Some(fido)
         })
     }
 
@@ -214,7 +218,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
             cert_compression_cache: Arc::new(compress::CompressionCache::default()),
             cert_decompressors: compress::default_cert_decompressors().to_vec(),
             ech_mode: self.state.client_ech_mode,
-            fido: Arc::new(Mutex::new(None))
+            fido: None
         }
     }
 }

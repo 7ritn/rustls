@@ -18,6 +18,8 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
 use rustls_pemfile::certs;
+use rustls::fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
+use rustls::fido::state::FidoServer;
 
 fn load_ca_certs() -> RootCertStore {
     let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open CA file"));
@@ -47,10 +49,19 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let ca_store = load_ca_certs();
     let verifier = WebPkiClientVerifier::builder(ca_store.into()).build().unwrap();
 
+    let fido_config = FidoServer::new(
+        "localhost".to_string(),
+        "localhost".to_string(),
+        FidoPolicy::Preferred,
+        FidoPolicy::Required,
+        FidoAuthenticatorAttachment::CrossPlatform,
+        60000,
+        vec![4, 3, 2, 1]
+    );
 
     let config = rustls::ServerConfig::builder()
         .with_client_cert_verifier(verifier)
-        .with_no_fido()
+        .with_fido(fido_config)
         .with_single_cert(certs, private_key)?;
 
     let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();

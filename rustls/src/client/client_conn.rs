@@ -285,7 +285,7 @@ pub struct ClientConfig {
     pub(super) ech_mode: Option<EchMode>,
 
     /// State of fido authentication
-    pub fido: Arc<Mutex<Option<FidoClient>>>
+    pub fido: Option<FidoClient>
 }
 
 impl ClientConfig {
@@ -640,9 +640,7 @@ mod connection {
     use pki_types::ServerName;
 
     use super::ClientConnectionData;
-    
-    use crate::fido::messages::FidoAuthenticationIndication;
-    use crate::msgs::handshake::ClientExtension;
+
     use crate::ClientConfig;
     use crate::client::EchStatus;
     use crate::common_state::Protocol;
@@ -720,16 +718,12 @@ mod connection {
             name: ServerName<'static>,
             alpn_protocols: Vec<Vec<u8>>,
         ) -> Result<Self, Error> {
-            let extra_exts = match *config.fido.lock().unwrap() {
-                Some(_) => vec![ClientExtension::FidoAuthenticationIndication(FidoAuthenticationIndication::new(vec![]))],
-                None => vec![]
-            };
             Ok(Self {
                 inner: ConnectionCommon::from(ConnectionCore::for_client(
                     config,
                     name,
                     alpn_protocols,
-                    extra_exts,
+                    vec![],
                     Protocol::Tcp,
                 )?),
             })
