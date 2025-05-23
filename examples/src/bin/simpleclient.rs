@@ -49,16 +49,15 @@ fn main() {
     
     let persistent_reg_state = Arc::new(Mutex::new(None));
     
-    let fido = FidoClient{
-        mode: FidoMode::Authentication,
-        user_name: "emily".to_string(),
-        user_display_name: "emily".to_string(),
-        user_id: "emily".as_bytes().to_vec(),
-        ticket: Some(vec![4,3,2,1]),
-        fido_device_pin: "1234".to_string(),
-        persistent_reg_state: persistent_reg_state.clone(),
-        response_buffer: Arc::new(Mutex::new(None)),
-    };
+    let fido = FidoClient::new(
+        FidoMode::Authentication,
+        "emily".to_string(),
+        "emily".to_string(),
+        "emily".as_bytes().to_vec(),
+        Some(vec![4,3,2,1]),
+        "1234".to_string(),
+        persistent_reg_state.clone()
+    );
     
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)

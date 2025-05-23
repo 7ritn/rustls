@@ -31,7 +31,7 @@ pub struct FidoServer {
     pub(crate) authenticator_attachment: FidoAuthenticatorAttachment,
     pub(crate) timeout: u32,
     pub(crate) ticket: Vec<u8>,
-    pub(crate) registration_state: HashMap<Vec<u8>, (FidoRegistrationRequest, PasskeyRegistration)>,
+    pub(crate) registration_state: HashMap<Vec<u8>, ((FidoRegistrationRequest, Vec<u8>), PasskeyRegistration)>,
     pub(crate) pre_registration_state: HashMap<Vec<u8>, Vec<u8>>
 }
 
@@ -124,7 +124,7 @@ impl FidoServer {
             Some(optionals)
         );
 
-        self.registration_state.insert(user_id.clone().as_bytes().to_vec(), (registration_request, skr));
+        self.registration_state.insert(user_id.clone().as_bytes().to_vec(), ((registration_request, user_id.as_bytes().into()), skr));
 
         Ok(())
     }
@@ -208,7 +208,7 @@ impl FidoServer {
         FidoPreRegistrationRequest::new(ephem_user_id, gcm_key)
     }
 
-    pub(crate) fn get_registration_request(&mut self, ephem_user_id: &Vec<u8>) ->  Result<&FidoRegistrationRequest, Error> {
+    pub(crate) fn get_registration_request(&mut self, ephem_user_id: &Vec<u8>) ->  Result<&(FidoRegistrationRequest, Vec<u8>), Error> {
         if let Some(state) = self.registration_state.get(ephem_user_id){
             Ok(&state.0)
         } else {
@@ -220,22 +220,14 @@ impl FidoServer {
 /// FidoClient
 #[derive(Debug, Clone)]
 pub struct FidoClient {
-    /// mode
-    pub mode: FidoMode,
-    /// user_name
-    pub user_name: String,
-    /// user_display_name
-    pub user_display_name: String,
-    /// user_id
-    pub user_id: Vec<u8>,
-    /// ticket
-    pub ticket: Option<Vec<u8>>,
-    /// ticket
-    pub fido_device_pin: String,
-    /// persistent_reg_state
-    pub persistent_reg_state: Arc<Mutex<Option<RegistrationState>>>,
-    /// response_buffer
-    pub response_buffer: Arc<Mutex<Option<FidoResponse>>>,
+    pub(crate) mode: FidoMode,
+    pub(crate) user_name: String,
+    pub(crate) user_display_name: String,
+    pub(crate) user_id: Vec<u8>,
+    pub(crate) ticket: Option<Vec<u8>>,
+    pub(crate) fido_device_pin: String,
+    pub(crate) persistent_reg_state: Arc<Mutex<Option<RegistrationState>>>,
+    pub(crate) response_buffer: Arc<Mutex<Option<FidoResponse>>>,
 }
 
 /// state to be remembered between handshakes
@@ -248,6 +240,28 @@ pub struct RegistrationState {
 }
 
 impl FidoClient {
+    /// Create new fido client
+    pub fn new(
+        mode: FidoMode,
+        user_name: String,
+        user_display_name: String,
+        user_id: Vec<u8>,
+        ticket: Option<Vec<u8>>,
+        fido_device_pin: String,
+        persistent_reg_state: Arc<Mutex<Option<RegistrationState>>>,
+    ) -> Self {
+        Self {
+            mode,
+            user_name,
+            user_display_name,
+            user_id,
+            ticket,
+            fido_device_pin,
+            persistent_reg_state,
+            response_buffer: Arc::new(Mutex::new(None)), // default
+        }
+    }
+
     pub(crate) fn pre_register_fido(&self, ephem_user_id: Vec<u8>, gcm_key: Vec<u8>) {
         let mut binding = self.persistent_reg_state.lock().expect("lock persistent_reg_state");
         *binding = Some(RegistrationState{ephem_user_id, gcm_key});

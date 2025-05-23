@@ -459,6 +459,7 @@ mod key_log_file;
 mod suites;
 mod versions;
 mod webpki;
+/// fido extension
 pub mod fido;
 
 /// Internal classes that are used in integration tests.

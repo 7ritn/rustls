@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::{fmt, mem};
-use std::sync::Mutex;
 
 use pki_types::{ServerName, UnixTime};
 

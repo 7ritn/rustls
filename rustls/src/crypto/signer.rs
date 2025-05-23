@@ -188,7 +188,6 @@ impl CertifiedKey {
         };
 
         let cert = ParsedCertificate::try_from(self.end_entity_cert()?)?;
-        let a = cert.subject_public_key_info();
         match key_spki == cert.subject_public_key_info() {
             true => Ok(()),
             false => Err(InconsistentKeys::KeyMismatch.into()),

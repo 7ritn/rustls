@@ -1,7 +1,7 @@
 use std::vec;
 use authenticator::ctap2::server::{PublicKeyCredentialDescriptor, PublicKeyCredentialParameters, ResidentKeyRequirement, Transport, UserVerificationRequirement};
 use crate::fido::enums::{FidoAuthenticatorTransport, FidoPolicy, FidoPublicKeyAlgorithms};
-use crate::fido::messages::{FidoCredential};
+use crate::fido::messages::FidoCredential;
 
 use std::convert::TryFrom;
 use authenticator::crypto::COSEAlgorithm;

@@ -40,9 +40,6 @@ use crate::tls13::{
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
 mod client_hello {
-
-    use webauthn_rs::prelude::DiscoverableAuthentication;
-
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
@@ -384,9 +381,8 @@ mod client_hello {
             )?;
 
             let doing_client_auth = if full_handshake {
-                let (client_auth, sas) = emit_certificate_req_tls13(&mut flight, &self.config, fido_indication)?;
-                fido_handshake_state = Some(FidoHandshakeState::SAS(sas.unwrap()));
-
+                let (client_auth, handshake_state) = emit_certificate_req_tls13(&mut flight, &self.config, fido_indication)?;
+                fido_handshake_state = handshake_state;
                 if let Some(compressor) = cert_compressor {
                     emit_compressed_certificate_tls13(
                         &mut flight,
@@ -713,7 +709,7 @@ mod client_hello {
         flight: &mut HandshakeFlightTls13<'_>,
         config: &ServerConfig,
         fido_option: Option<FidoIndication>
-    ) -> Result<(bool, Option<DiscoverableAuthentication>), Error> {
+    ) -> Result<(bool, Option<FidoHandshakeState>), Error> {
         let mut fido_authentication_server_state = None;
         if !config.verifier.offer_client_auth() {
             return Ok((false, fido_authentication_server_state));
@@ -740,19 +736,21 @@ mod client_hello {
                 FidoIndication::Authentication(_) => 
                 {
                     let (fido_authentication_request, sas) = fido.clone().start_authentication_fido()?;
-                    fido_authentication_server_state = Some(sas);
+                    fido_authentication_server_state = Some(FidoHandshakeState::SAS(sas));
                     fido_request = FidoRequest::Authentication(fido_authentication_request);
                 }
                 FidoIndication::PreRegistration(_) =>
                 {
                     let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
                     let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
-                    let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id, gcm_key);
+                    let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id.clone(), gcm_key);
+                    fido_authentication_server_state = Some(FidoHandshakeState::EphemUserId(ephem_user_id));
                     fido_request = FidoRequest::PreRegistration(fido_pre_registration_request);
                 },
                 FidoIndication::Registration(fido_registration_indication) =>
                 {
-                    let registration_request = fido.get_registration_request(&fido_registration_indication.ephem_user_id)?;
+                    let (registration_request, user_id) = fido.get_registration_request(&fido_registration_indication.ephem_user_id)?;
+                    fido_authentication_server_state = Some(FidoHandshakeState::UserId(user_id.clone()));
                     fido_request = FidoRequest::Registration(registration_request.clone())
                 },
             }

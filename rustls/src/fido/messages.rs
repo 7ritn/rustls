@@ -8,8 +8,10 @@ use crate::{msgs::codec::{Codec, Reader}, InvalidMessage};
 
 use super::enums::{FidoAuthenticatorAttachment, FidoAuthenticatorTransport, FidoPolicy, FidoPublicKeyAlgorithms, MessageType};
 
+/// FidoPreRegistrationIndication
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
-pub(crate) struct FidoPreRegistrationIndication {
+pub struct FidoPreRegistrationIndication {
+    /// message_type
     pub message_type: u8,
 }
 
@@ -28,9 +30,12 @@ pub(crate) struct FidoPreRegistrationResponse {
     pub ticket: Vec<u8>
 }
 
+/// FidoRegistrationIndication
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
-pub(crate) struct FidoRegistrationIndication {
+pub struct FidoRegistrationIndication {
+    /// message_type
     pub message_type: u8,
+    /// ephem_user_id
     pub ephem_user_id: Vec<u8>,
 }
 
@@ -86,8 +91,10 @@ pub(crate)  struct FidoClientData {
 
 }
 
+/// FidoAuthenticationIndication
 #[derive(Debug, Clone, Serialize_tuple, Deserialize_tuple)]
 pub struct FidoAuthenticationIndication {
+    /// message_type
     pub message_type: u8
 }
 
@@ -155,14 +162,14 @@ pub enum FidoIndication {
 
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FidoRequest {
+pub(crate) enum FidoRequest {
     PreRegistration(FidoPreRegistrationRequest),
     Registration(FidoRegistrationRequest),
     Authentication(FidoAuthenticationRequest)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum FidoResponse {
+pub(crate) enum FidoResponse {
     PreRegistration(FidoPreRegistrationResponse),
     Registration(FidoRegistrationResponse),
     Authentication(FidoAuthenticationResponse)
@@ -173,7 +180,7 @@ pub enum FidoResponse {
 impl FidoPreRegistrationIndication {
     pub(crate) fn new() -> Self {
         Self { 
-            message_type: MessageType::PreRegistrationIndication.into(), 
+            message_type: MessageType::PreRegistrationIndication as u8,
         }
     }
 }
@@ -181,7 +188,7 @@ impl FidoPreRegistrationIndication {
 impl FidoPreRegistrationRequest {
     pub(crate) fn new(ephem_user_id: Vec<u8>, gcm_key: Vec<u8>) -> Self {
         Self { 
-            message_type: MessageType::PreRegistrationRequest.into(),
+            message_type: MessageType::PreRegistrationRequest as u8,
             ephem_user_id,
             gcm_key
         }
@@ -191,7 +198,7 @@ impl FidoPreRegistrationRequest {
 impl FidoPreRegistrationResponse {
     pub(crate) fn new(user_name: String, user_display_name: String, ticket: Vec<u8>) -> Self {
         Self { 
-            message_type: MessageType::PreRegistrationResponse.into(),
+            message_type: MessageType::PreRegistrationResponse as u8,
             user_name,
             user_display_name,
             ticket
@@ -202,7 +209,7 @@ impl FidoPreRegistrationResponse {
 impl FidoRegistrationIndication {
     pub(crate) fn new(ephem_user_id: Vec<u8>) -> Self {
         Self { 
-            message_type: MessageType::RegistrationIndication.into(), 
+            message_type: MessageType::RegistrationIndication as u8,
             ephem_user_id
         }
     }
@@ -220,7 +227,7 @@ impl FidoRegistrationRequest {
         options: Option<FidoRegistrationRequestOptionals>
     ) -> Self {
         Self { 
-            message_type: MessageType::RegistrationRequest.into(),
+            message_type: MessageType::RegistrationRequest as u8,
             challenge,
             rp_id,
             rp_name,
@@ -245,7 +252,7 @@ impl Default for FidoRegistrationAuthenticatorSelection {
 impl FidoRegistrationResponse {
     pub(crate) fn new(attestation_object: Vec<u8>, client_data_json: String) -> Self {
         Self { 
-            message_type: MessageType::RegistrationResponse.into(), 
+            message_type: MessageType::RegistrationResponse as u8,
             attestation_object,
             client_data_json
         }
@@ -253,9 +260,9 @@ impl FidoRegistrationResponse {
 }
 
 impl FidoAuthenticationIndication {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self { 
-            message_type: MessageType::AuthenticationIndication.into()
+            message_type: MessageType::AuthenticationIndication as u8
         }
     }
 }
@@ -263,7 +270,7 @@ impl FidoAuthenticationIndication {
 impl FidoAuthenticationRequest {
     pub(crate) fn new(challenge: Vec<u8>, options: Option<FidoAuthenticationRequestOptionals>) -> Self {
         Self { 
-            message_type: MessageType::AuthenticationRequest.into(), 
+            message_type: MessageType::AuthenticationRequest as u8,
             challenge,
             optionals: options.unwrap_or_default()
         }
@@ -273,7 +280,7 @@ impl FidoAuthenticationRequest {
 impl FidoAuthenticationResponse {
     pub(crate) fn new(client_data_json: String, authenticator_data: Vec<u8>, signature: Vec<u8>, options: Option<FidoAuthenticationResponseOptionals>) -> Self {
         Self { 
-            message_type: MessageType::AuthenticationResponse.into(), 
+            message_type: MessageType::AuthenticationResponse as u8,
             client_data_json,
             authenticator_data,
             signature,
