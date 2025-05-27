@@ -10,13 +10,13 @@
 use std::error::Error as StdError;
 use std::fs::File;
 use std::io::{BufReader, Write};
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
-use rustls::RootCertStore;
+use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
 use rustls_pemfile::certs;
 use rustls::fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
 use rustls::fido::state::FidoServer;
@@ -31,6 +31,29 @@ fn load_ca_certs() -> RootCertStore {
         store.add(CertificateDer::from(cert)).unwrap();
     }
     store
+}
+
+
+fn handle_client(stream: TcpStream, config: Arc<ServerConfig>) -> Result<(), Box<dyn std::error::Error>> {
+    stream.set_nonblocking(false)?; // Optional: force blocking mode
+
+    let conn = ServerConnection::new(config)?;
+    let mut tls = StreamOwned::new(conn, stream);
+
+    // Complete TLS handshake
+    while tls.conn.is_handshaking() {
+        tls.conn.complete_io(&mut tls.sock)?;
+    }
+
+    // Example: send a message
+    tls.write_all(b"Hello from the server")?;
+    tls.flush()?;
+
+    // Clean shutdown
+    tls.conn.send_close_notify();
+    let _ = tls.conn.complete_io(&mut tls.sock);
+
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn StdError>> {
@@ -59,26 +82,28 @@ fn main() -> Result<(), Box<dyn StdError>> {
         vec![4, 3, 2, 1]
     );
 
-    let config = rustls::ServerConfig::builder()
+    let config = ServerConfig::builder()
         .with_client_cert_verifier(verifier)
         .with_fido(fido_config)
         .with_single_cert(certs, private_key)?;
 
-    let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();
-    let (mut stream, _) = listener.accept()?;
-    stream.set_nonblocking(false)?;
+    let listener = TcpListener::bind("[::]:4443")?;
+    let config = Arc::new(config);
 
-    let mut conn = rustls::ServerConnection::new(Arc::new(config))?;
-    while conn.is_handshaking() {
-        conn.complete_io(&mut stream)?;   
+    println!("Server listening on port 4443");
+
+    for stream_result in listener.incoming() {
+        match stream_result {
+            Ok(stream) => {
+                if let Err(e) = handle_client(stream, Arc::clone(&config)) {
+                    eprintln!("Error handling client: {}", e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Connection failed: {}", e);
+            }
+        }
     }
-
-    conn.writer()
-        .write_all(b"Hello from the server")?;
-    conn.complete_io(&mut stream)?;
-
-    conn.send_close_notify();
-    conn.complete_io(&mut stream)?;
 
     Ok(())
 }

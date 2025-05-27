@@ -12,10 +12,12 @@ use std::fs::File;
 use std::io::{stdout, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
-
+use std::thread::sleep;
+use std::time::Duration;
+use log::info;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::RootCertStore;
+use rustls::{ClientConnection, RootCertStore, Stream};
 use rustls_pemfile::certs;
 use rustls::fido::enums::FidoMode;
 use rustls::fido::state::FidoClient;
@@ -48,12 +50,11 @@ fn main() {
     let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/target/debug/tls-certs/client.key.pem").unwrap();
     
     let persistent_reg_state = Arc::new(Mutex::new(None));
-    
+    let mode = FidoMode::Authentication;
     let fido = FidoClient::new(
-        FidoMode::Authentication,
+        mode,
         "emily".to_string(),
         "emily".to_string(),
-        "emily".as_bytes().to_vec(),
         Some(vec![4,3,2,1]),
         "1234".to_string(),
         persistent_reg_state.clone()
@@ -67,10 +68,21 @@ fn main() {
     // Allow using SSLKEYLOGFILE.
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
+    if mode == FidoMode::Registration {
+        let server_name = "localhost".try_into().unwrap();
+        let mut conn = ClientConnection::new(Arc::new(config.clone()), server_name).unwrap();
+        let mut sock = TcpStream::connect("localhost:4443").unwrap();
+        let mut tls = Stream::new(&mut conn, &mut sock);
+        tls.flush().unwrap();
+        info!("fido: first handshake succeeded!");
+    }
+    
+    sleep(Duration::from_secs(5));
+
     let server_name = "localhost".try_into().unwrap();
-    let mut conn = rustls::ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut conn = ClientConnection::new(Arc::new(config), server_name).unwrap();
     let mut sock = TcpStream::connect("localhost:4443").unwrap();
-    let mut tls = rustls::Stream::new(&mut conn, &mut sock);
+    let mut tls = Stream::new(&mut conn, &mut sock);
 
     let mut plaintext = Vec::new();
     tls.read_to_end(&mut plaintext).unwrap();

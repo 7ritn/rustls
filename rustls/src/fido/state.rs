@@ -11,9 +11,11 @@ use aws_lc_rs::digest;
 use aws_lc_rs::digest::digest;
 use base64::Engine;
 use base64::engine::general_purpose;
+use log::{debug, info};
 use webauthn_rs::prelude::{Base64UrlSafeData, DiscoverableAuthentication, PasskeyRegistration, Url, Uuid};
 use webauthn_rs::{Webauthn, WebauthnBuilder};
 use webauthn_rs_proto::{AuthenticatorAssertionResponseRaw, AuthenticatorAttestationResponseRaw, PublicKeyCredential, RegisterPublicKeyCredential};
+use x509_parser::nom::AsBytes;
 use crate::Error;
 use crate::fido::enums::{FidoAuthenticatorAttachment, FidoMode, FidoPolicy};
 use crate::fido::messages::{FidoAuthenticationResponseOptionals, FidoClientData, FidoCredential, FidoPreRegistrationRequest, FidoPreRegistrationResponse, FidoRegistrationAuthenticatorSelection, FidoRegistrationRequestOptionals, FidoRegistrationResponse, FidoResponse};
@@ -102,7 +104,9 @@ impl FidoServer {
         encrypt_in_place(&gcm_key, &mut enc_user_name)?;
         encrypt_in_place(&gcm_key, &mut enc_user_display_name)?;
         encrypt_in_place(&gcm_key, &mut enc_user_id)?;
+        debug!("Decrypted enc_authenticator: {:?}", enc_authenticator_selection);
         encrypt_in_place(&gcm_key, &mut enc_authenticator_selection)?;
+        debug!("Encrypted enc_authenticator: {:?}", enc_authenticator_selection);
         encrypt_in_place(&gcm_key, &mut enc_excluded_credentials)?;
 
         let optionals = FidoRegistrationRequestOptionals{
@@ -124,17 +128,17 @@ impl FidoServer {
             Some(optionals)
         );
 
-        self.registration_state.insert(user_id.clone().as_bytes().to_vec(), ((registration_request, user_id.as_bytes().into()), skr));
+        self.registration_state.insert(ephem_user_id.clone().as_bytes().to_vec(), ((registration_request, user_id.as_bytes().into()), skr));
 
         Ok(())
     }
 
-    pub(crate) fn finish_register_fido(&mut self, user_id: Vec<u8>, client_data_json: String, attestation_object: Vec<u8>) -> Result<(), Error> {
-        let (_, skr) = self.registration_state.remove(&user_id).ok_or(Error::General("no registration state found".to_string()))?;
+    pub(crate) fn finish_register_fido(&mut self, ephem_user_id: Vec<u8>, user_id: Vec<u8>, client_data_json: String, attestation_object: Vec<u8>) -> Result<(), Error> {
+        let (_, skr) = self.registration_state.remove(&ephem_user_id).ok_or(Error::General("no registration state found".to_string()))?;
 
         let attestation_response = AuthenticatorAttestationResponseRaw{
-            attestation_object: attestation_object.into(),
-            client_data_json: client_data_json.as_bytes().to_vec().into(),
+            attestation_object: attestation_object.as_bytes().into(),
+            client_data_json: client_data_json.as_bytes().into(),
             transports: None
         };
 
@@ -170,10 +174,7 @@ impl FidoServer {
 
     pub(crate) fn finish_authentication_fido(&self, fido_response: FidoAuthenticationResponse, sas: DiscoverableAuthentication) -> Result<(), Error>{
 
-        let user_handle = match fido_response.optionals.user_handle {
-            Some(user_handle) => Some(user_handle.into()),
-            None => None
-        };
+        let user_handle = fido_response.optionals.user_handle.map(|user_handle| user_handle.into());
         let credential_id = fido_response.optionals.selected_credential_id.unwrap_or_default();
         let credential_id_string = String::from_utf8(credential_id.clone()).unwrap_or_default();
 
@@ -223,7 +224,6 @@ pub struct FidoClient {
     pub(crate) mode: FidoMode,
     pub(crate) user_name: String,
     pub(crate) user_display_name: String,
-    pub(crate) user_id: Vec<u8>,
     pub(crate) ticket: Option<Vec<u8>>,
     pub(crate) fido_device_pin: String,
     pub(crate) persistent_reg_state: Arc<Mutex<Option<RegistrationState>>>,
@@ -245,7 +245,6 @@ impl FidoClient {
         mode: FidoMode,
         user_name: String,
         user_display_name: String,
-        user_id: Vec<u8>,
         ticket: Option<Vec<u8>>,
         fido_device_pin: String,
         persistent_reg_state: Arc<Mutex<Option<RegistrationState>>>,
@@ -254,7 +253,6 @@ impl FidoClient {
             mode,
             user_name,
             user_display_name,
-            user_id,
             ticket,
             fido_device_pin,
             persistent_reg_state,
@@ -278,6 +276,8 @@ impl FidoClient {
         let mut manager = AuthenticatorService::new().expect("AuthenticatorService::new");
         manager.add_u2f_usb_hid_platform_transports();
 
+        debug!("Prepare register FIDO token");
+
         let gcm_key = self.persistent_reg_state
             .lock()
             .expect("lock persistent_reg_state")
@@ -286,8 +286,10 @@ impl FidoClient {
             .gcm_key;
 
         // ToDo verify request and actual user info match
+        let mut enc_user_id = request.enc_user_id.clone();
+        let user_id = decrypt_in_place(&*gcm_key, &mut enc_user_id)?;
         let user = PublicKeyCredentialUserEntity {
-            id: self.user_id.clone(),
+            id: user_id.into(),
             name: Some(self.user_name.clone()),
             display_name: Some(self.user_display_name.clone())
         };
@@ -297,7 +299,7 @@ impl FidoClient {
 
         let client_data = FidoClientData{
             mode: "webauthn.create".to_string(),
-            challenge_b64,
+            challenge: challenge_b64,
             origin: origin.clone(),
             cross_origin: false,
         };
@@ -307,16 +309,16 @@ impl FidoClient {
 
         let authenticator_selection: FidoRegistrationAuthenticatorSelection;
         if let Some(enc_authenticator_selection) = request.optionals.enc_authenticator_selection.clone().as_mut() {
-            decrypt_in_place(&gcm_key, enc_authenticator_selection)?;
-            authenticator_selection = serde_cbor::from_slice(enc_authenticator_selection).map_err(|e| Error::General(e.to_string()))?;
+            let dec_authenticator_selection = decrypt_in_place(&gcm_key, enc_authenticator_selection)?;
+            authenticator_selection = serde_cbor::from_slice(dec_authenticator_selection).map_err(|e| Error::General("Could not deserialize authenticator_selection".to_string() + &*e.to_string()))?;
         } else {
             authenticator_selection = Default::default();
         }
 
         let excluded_credentials: Vec<FidoCredential>;
         if let Some(enc_excluded_credentials) = request.optionals.enc_excluded_credentials.clone().as_mut() {
-            decrypt_in_place(&gcm_key, enc_excluded_credentials)?;
-            excluded_credentials = serde_cbor::from_slice(enc_excluded_credentials).map_err(|e| Error::General(e.to_string()))?;
+            let dec_excluded_credentials = decrypt_in_place(&gcm_key, enc_excluded_credentials)?;
+            excluded_credentials = serde_cbor::from_slice(dec_excluded_credentials).map_err(|e| Error::General(e.to_string()))?;
         } else {
             excluded_credentials = Default::default();
         }
@@ -340,6 +342,8 @@ impl FidoClient {
             use_ctap1_fallback: false,
         };
 
+        debug!("Start registering FIDO token");
+
         let (register_tx, register_rx) = channel();
         let (status_tx, _status_rx) = channel::<StatusUpdate>();
         let callback = StateCallback::new(Box::new(move |rv| {
@@ -348,6 +352,8 @@ impl FidoClient {
 
         manager.register(request.optionals.timeout.unwrap_or(10000).into(), ctap_args, status_tx, callback)
             .map_err(|e| Error::General(e.to_string()))?;
+
+        info!("Authenticate now!");
 
         let register_result = register_rx
             .recv()
@@ -371,28 +377,29 @@ impl FidoClient {
         let allow_list = Vec::new();
         let rp_id = request.optionals.rpid.ok_or(Error::General("missing required rp_id".into()))?;
         let origin = "https://".to_string() + &*rp_id.clone();
-        let binding = digest(&digest::SHA256, &request.challenge);
-        let challenge_hash = binding.as_ref().try_into().expect("challenge_hash");
         let challenge_b64 = general_purpose::STANDARD.encode(&request.challenge);
 
         let client_data = FidoClientData{
             mode: "webauthn.get".to_string(),
-            challenge_b64,
+            challenge: challenge_b64,
             origin: origin.clone(),
             cross_origin: false,
         };
+        let client_data_json = serde_json::to_string(&client_data).expect("serialize client_data");
+        let binding = digest(&digest::SHA256, client_data_json.as_bytes());
+        let client_data_hash = binding.as_ref().try_into().expect("digest client_data_json");
 
         let (status_tx, _status_rx) = channel::<StatusUpdate>();
 
         let ctap_args = SignArgs {
-            client_data_hash: challenge_hash,
+            client_data_hash,
             origin,
             relying_party_id: rp_id,
             allow_list,
             user_verification_req: request.optionals.user_verification.unwrap_or(FidoPolicy::Preferred).into(),
             user_presence_req: true,
             extensions: Default::default(),
-            pin: None,
+            pin: Some(Pin::new(&self.fido_device_pin)),
             use_ctap1_fallback: false,
         };
 
@@ -407,6 +414,8 @@ impl FidoClient {
         manager
             .sign(request.optionals.timeout.unwrap_or(10000) as u64, ctap_args, status_tx, callback)
             .map_err(|e| Error::General(format!("{:?}", e)))?;
+
+        info!("fido: Authenticate now!");
 
         sign_result = sign_rx
             .recv()
@@ -431,8 +440,8 @@ impl FidoClient {
 
         let mut response = self.response_buffer.lock().unwrap();
         *response = Some(FidoResponse::Authentication(FidoAuthenticationResponse::new(
-            serde_json::to_string(&client_data).expect("serialize client_data"),
-            serde_cbor::to_vec(&sign_result.assertion.auth_data).expect("serialize auth_data"),
+            client_data_json,
+            sign_result.assertion.auth_data.to_vec(),
             sign_result.assertion.signature,
             Some(options)
         )));
@@ -453,15 +462,13 @@ fn encrypt_in_place(key: &Vec<u8>, in_out: &mut Vec<u8>) -> Result<(), Error>{
         .map_err(|e| Error::General(e.to_string()))
 }
 
-fn decrypt_in_place(key: &[u8], in_out: &mut Vec<u8>) -> Result<(), Error>{
-    let unbound_key = UnboundKey::new(&aead::AES_256_GCM, key).map_err(|e| Error::General(e.to_string()))?;
+fn decrypt_in_place<'in_out>(key: &[u8], in_out: &'in_out mut Vec<u8>) -> Result<&'in_out mut [u8], Error> {
+    let unbound_key = UnboundKey::new(&aead::AES_256_GCM, key).map_err(|e| Error::General("Could not load key: ".to_string() + &*e.to_string()))?;
     let key = LessSafeKey::new(unbound_key);
 
     let nonce_bytes = [0u8; 12];
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     key.open_in_place(nonce, aead::Aad::empty(),in_out)
-        .map_err(|e| Error::General(e.to_string()))?;
-
-    Ok(())
+        .map_err(|e| Error::General("Could not decrypt: ".to_string() + &*e.to_string()))
 }

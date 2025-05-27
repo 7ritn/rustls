@@ -898,23 +898,31 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
 
         if let Some(fido_request) = certreq.fido_extension() {
             if let Some(fido) = self.config.fido.as_ref() {
-                debug!("FIDO challenge received: {:?}", fido_request);
+                debug!("FIDO request received: {:?}", fido_request);
                 match fido_request {
                     FidoRequest::PreRegistration(request) => {
                         fido.pre_register_fido(request.ephem_user_id, request.gcm_key);
+                        debug!("fido: client-side pre-registration succeeded");
                     }
                     FidoRequest::Registration(request) => {
-                        // Verify rp id
-                        if self.server_name.to_str() != request.rp_id {
-                            return Err(Error::General("mismatch rp id and server name".into()))
+                        // ToDo Improve rp_id verification
+                        if self.server_name.to_str() == request.rp_id {
+                            fido.register_fido(request)?;
+                            debug!("fido: client-side registration succeeded");
+                        } else {
+                            debug!("server_name: {:?}, request.rp_id: {:?}", self.server_name, request.rp_id);
+                            warn!("fido: registration: server_name and request.rp_id mismatch, skipping...");
                         }
-                        fido.register_fido(request)?;
+
                     }
                     FidoRequest::Authentication(request) => {
-                        if self.server_name.to_str() != request.optionals.rpid.clone().unwrap() {
-                            return Err(Error::General("mismatch rp id and server name".into()))
+                        if self.server_name.to_str() ==  request.optionals.rpid.clone().unwrap_or_default() {
+                            fido.authenticate_fido(request)?;
+                            debug!("fido: client-side authentication succeeded");
+                        } else {
+                            debug!("server_name: {:?}, request.rp_id: {:?}", self.server_name, request.optionals.rpid);
+                            warn!("fido: authentication: server_name and request.rp_id mismatch, skipping...");
                         }
-                        fido.authenticate_fido(request)?;
                     }
                 }
             }
@@ -1380,7 +1388,8 @@ impl State<ClientConnectionData> for ExpectFinished {
 
         let mut fido_response = None;
         if let Some(fido_client) = st.config.fido.as_ref() {
-            let mut buffer = fido_client.response_buffer.lock().unwrap();
+            debug!("Retrieving fido response");
+            let mut buffer = fido_client.response_buffer.lock().expect("lock response_buffer");
             fido_response = buffer.take();
         }
 

@@ -116,6 +116,6 @@ pub(crate) enum FidoRegistrationAttestation {
 #[derive(Debug, Clone)]
 pub(crate) enum FidoHandshakeState {
     SAS(DiscoverableAuthentication),
-    UserId(Vec<u8>),
+    EphemAndUserId((Vec<u8>,Vec<u8>)),
     EphemUserId(Vec<u8>)
 }

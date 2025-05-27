@@ -5,7 +5,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Deref;
 use core::{fmt, iter};
-
+use log::debug;
 use pki_types::{CertificateDer, DnsName};
 
 #[cfg(feature = "tls12")]
@@ -1840,6 +1840,7 @@ impl<'a> CertificatePayloadTls13<'a> {
                     }
 
                     if let Some(response) = fido_response.clone() {
+                        debug!("Fido: sending response: {:?}", response);
                         e.exts.push(CertificateExtension::FidoResponse(response));
                     }
 
@@ -1867,8 +1868,8 @@ impl<'a> CertificatePayloadTls13<'a> {
                 return a;
             }
         }
-
-        return None;
+        
+        None
     }
 
     pub(crate) fn any_entry_has_duplicate_extension(&self) -> bool {

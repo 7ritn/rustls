@@ -414,16 +414,19 @@ fn emit_client_hello_for_retry(
                 let registration_state = binding.as_ref();
                 match registration_state {
                     None => {
-                        // Pre Registration\
+                        // Pre Registration
+                        debug!("Fido: Indicating PreRegistration");
                         indication = FidoIndication::PreRegistration(FidoPreRegistrationIndication::new())
                     }
                     Some(reg_state) => {
                         // Registration
-                        indication = FidoIndication::Registration(FidoRegistrationIndication::new(reg_state.ephem_user_id.clone()))
+                        debug!("Fido: Indicating Registration");
+                        indication = FidoIndication::Registration(FidoRegistrationIndication::new(&reg_state.ephem_user_id))
                     }
                 }
             }
             FidoMode::Authentication => {
+                debug!("Fido: Indicating Authentication");
                 indication = FidoIndication::Authentication(FidoAuthenticationIndication::new());
             }
         }

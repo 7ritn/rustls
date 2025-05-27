@@ -85,7 +85,7 @@ pub(crate) struct FidoRegistrationResponse {
 pub(crate)  struct FidoClientData {
     #[serde(rename = "type")]
     pub mode: String,
-    pub challenge_b64: String,
+    pub challenge: String,
     pub origin: String,
     pub cross_origin: bool
 
@@ -207,10 +207,10 @@ impl FidoPreRegistrationResponse {
 }
 
 impl FidoRegistrationIndication {
-    pub(crate) fn new(ephem_user_id: Vec<u8>) -> Self {
+    pub(crate) fn new(ephem_user_id: &Vec<u8>) -> Self {
         Self { 
             message_type: MessageType::RegistrationIndication as u8,
-            ephem_user_id
+            ephem_user_id: ephem_user_id.clone()
         }
     }
 }
