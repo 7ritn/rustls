@@ -1131,7 +1131,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         trace!("Received Certificate message");
 
-        if let Some(fido) = &self.config.clone().fido {
+        if let Some(fido) = &Arc::<ServerConfig>::clone(&self.config).fido {
             let mandatory = true;
 
             if self.fido_handshake_state.is_some() && certp.fido_extension().is_some() {
@@ -1140,9 +1140,9 @@ impl State<ServerConnectionData> for ExpectCertificate {
                 debug!("fido: received response: {:?}", fido_response);
                 match fido_response {
                     FidoResponse::Authentication(fido_authentication_response) => {
-                        let sas = match self.fido_handshake_state {
-                            Some(FidoHandshakeState::SAS(sas)) => sas,
-                            _ => return if mandatory {
+                        let Some(FidoHandshakeState::SAS(sas)) = self.fido_handshake_state
+                            else {
+                                return if mandatory {
                                     Err(Error::General("fido: SAS missing".into()))
                                 } else {
                                     self.transcript.abandon_client_auth();
@@ -1154,27 +1154,25 @@ impl State<ServerConnectionData> for ExpectCertificate {
                                         send_tickets: self.send_tickets,
                                     });
                                     Ok(return_box)
-                                }
-                        };
+                                } };
                         fido.finish_authentication_fido(fido_authentication_response.clone(), sas)?;
                     },
                     FidoResponse::PreRegistration(fido_pre_registration_response) => {
-                        let ephem_user_id = match self.fido_handshake_state {
-                            Some(FidoHandshakeState::EphemUserId(id)) => id,
-                            _ => return if mandatory {
-                                Err(Error::General("fido: EphemUserId missing".into()))
-                            } else {
-                                self.transcript.abandon_client_auth();
-                                let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                    config: self.config,
-                                    suite: self.suite,
-                                    key_schedule: self.key_schedule,
-                                    transcript: self.transcript,
-                                    send_tickets: self.send_tickets,
-                                });
-                                Ok(return_box)
-                            }
-                        };
+                        let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state
+                            else {
+                                return if mandatory {
+                                    Err(Error::General("fido: EphemUserId missing".into()))
+                                } else {
+                                    self.transcript.abandon_client_auth();
+                                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
+                                        config: self.config,
+                                        suite: self.suite,
+                                        key_schedule: self.key_schedule,
+                                        transcript: self.transcript,
+                                        send_tickets: self.send_tickets,
+                                    });
+                                    Ok(return_box)
+                            } };
                         if let Err(e) = fido.start_register_fido(
                             ephem_user_id,
                             fido_pre_registration_response.ticket.clone(),
@@ -1197,22 +1195,22 @@ impl State<ServerConnectionData> for ExpectCertificate {
                         }
                     },
                     FidoResponse::Registration(fido_registration_response) => {
-                        let (ephem_user_id, user_id) = match self.fido_handshake_state {
-                            Some(FidoHandshakeState::EphemAndUserId(id)) => id,
-                            _ => return if mandatory {
-                                Err(Error::General("fido: user id missing".into()))
-                            } else {
-                                self.transcript.abandon_client_auth();
-                                let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                    config: self.config,
-                                    suite: self.suite,
-                                    key_schedule: self.key_schedule,
-                                    transcript: self.transcript,
-                                    send_tickets: self.send_tickets,
-                                });
-                                Ok(return_box)
-                            }
-                        };
+                        let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state
+                            else {
+                                return if mandatory {
+                                    Err(Error::General("fido: user id missing".into()))
+                                } else {
+                                    self.transcript.abandon_client_auth();
+                                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
+                                        config: self.config,
+                                        suite: self.suite,
+                                        key_schedule: self.key_schedule,
+                                        transcript: self.transcript,
+                                        send_tickets: self.send_tickets,
+                                    });
+                                    Ok(return_box)
+                                }
+                            };
                         if let Err(e) = fido.finish_register_fido(
                             ephem_user_id,
                             user_id,

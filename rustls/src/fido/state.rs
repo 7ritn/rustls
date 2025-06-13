@@ -1,7 +1,7 @@
 use std::{borrow::ToOwned, collections::HashMap, format, string::String, vec, vec::Vec};
 use std::prelude::rust_2024::{Box, ToString};
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use core::time::Duration;
 use authenticator::authenticatorservice::{AuthenticatorService, RegisterArgs, SignArgs};
 use authenticator::ctap2::server::{AuthenticationExtensionsClientInputs, PublicKeyCredentialUserEntity, RelyingParty};
 use authenticator::{Pin, StatusUpdate};
@@ -23,6 +23,9 @@ use crate::lock::Mutex;
 use crate::sync::Arc;
 use super::{db::{FidoDB, User}, enums::FidoPublicKeyAlgorithms, messages::{FidoAuthenticationRequest, FidoAuthenticationRequestOptionals, FidoAuthenticationResponse, FidoRegistrationRequest}};
 
+type EphemUserId = Vec<u8>;
+type UserId = Vec<u8>;
+
 /// State and configuration for Fido TLS Extension server-side
 #[derive(Debug, Clone)]
 pub struct FidoServer {
@@ -33,7 +36,7 @@ pub struct FidoServer {
     pub(crate) authenticator_attachment: FidoAuthenticatorAttachment,
     pub(crate) timeout: u32,
     pub(crate) ticket: Vec<u8>,
-    pub(crate) registration_state: HashMap<Vec<u8>, ((FidoRegistrationRequest, Vec<u8>), PasskeyRegistration)>,
+    pub(crate) registration_state: HashMap<EphemUserId, ((FidoRegistrationRequest, UserId), PasskeyRegistration)>,
     pub(crate) pre_registration_state: HashMap<Vec<u8>, Vec<u8>>
 }
 
@@ -53,7 +56,7 @@ impl FidoServer {
         let webauthn = WebauthnBuilder::new(&rp_id, &rp_origin)
             .expect("Invalid configuration")
             .rp_name(&rp_name)
-            .timeout(Duration::new(timeout.try_into().unwrap_or_default(), 0))
+            .timeout(Duration::new(timeout as u64, 0))
             .build()
             .expect("Couldn't build FIDO verifier");
 
@@ -101,13 +104,13 @@ impl FidoServer {
         let excluded_credentials: Vec<FidoCredential> = vec![];
         let mut enc_excluded_credentials = serde_cbor::to_vec(&excluded_credentials).expect("serializing excluded_credentials");
 
-        encrypt_in_place(&gcm_key, &mut enc_user_name)?;
-        encrypt_in_place(&gcm_key, &mut enc_user_display_name)?;
-        encrypt_in_place(&gcm_key, &mut enc_user_id)?;
+        encrypt_in_place(gcm_key, &mut enc_user_name)?;
+        encrypt_in_place(gcm_key, &mut enc_user_display_name)?;
+        encrypt_in_place(gcm_key, &mut enc_user_id)?;
         debug!("Decrypted enc_authenticator: {:?}", enc_authenticator_selection);
-        encrypt_in_place(&gcm_key, &mut enc_authenticator_selection)?;
+        encrypt_in_place(gcm_key, &mut enc_authenticator_selection)?;
         debug!("Encrypted enc_authenticator: {:?}", enc_authenticator_selection);
-        encrypt_in_place(&gcm_key, &mut enc_excluded_credentials)?;
+        encrypt_in_place(gcm_key, &mut enc_excluded_credentials)?;
 
         let optionals = FidoRegistrationRequestOptionals{
             timeout: Some(self.timeout),
@@ -128,7 +131,7 @@ impl FidoServer {
             Some(optionals)
         );
 
-        self.registration_state.insert(ephem_user_id.clone().as_bytes().to_vec(), ((registration_request, user_id.as_bytes().into()), skr));
+        self.registration_state.insert(ephem_user_id.clone(), ((registration_request, user_id.as_bytes().into()), skr));
 
         Ok(())
     }
@@ -287,7 +290,7 @@ impl FidoClient {
 
         // ToDo verify request and actual user info match
         let mut enc_user_id = request.enc_user_id.clone();
-        let user_id = decrypt_in_place(&*gcm_key, &mut enc_user_id)?;
+        let user_id = decrypt_in_place(&gcm_key, &mut enc_user_id)?;
         let user = PublicKeyCredentialUserEntity {
             id: user_id.into(),
             name: Some(self.user_name.clone()),
@@ -326,8 +329,8 @@ impl FidoClient {
         let ctap_args = RegisterArgs {
             client_data_hash,
             relying_party: RelyingParty {
-                id: request.rp_id.into(),
-                name: Some(request.rp_name.into()),
+                id: request.rp_id,
+                name: Some(request.rp_name),
             },
             origin,
             user,
@@ -403,8 +406,6 @@ impl FidoClient {
             use_ctap1_fallback: false,
         };
 
-        let sign_result;
-
         let (sign_tx, sign_rx) = channel();
 
         let callback = StateCallback::new(Box::new(move |rv| {
@@ -417,7 +418,7 @@ impl FidoClient {
 
         info!("fido: Authenticate now!");
 
-        sign_result = sign_rx
+        let sign_result = sign_rx
             .recv()
             .map_err(|e| Error::General(format!("{:?}", e)))?
             .map_err(|e| Error::General(format!("{:?}", e)))?;

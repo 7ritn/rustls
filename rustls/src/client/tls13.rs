@@ -47,7 +47,7 @@ use crate::tls13::{
 };
 use crate::verify::{self, DigitallySignedStruct};
 use crate::{ConnectionTrafficSecrets, KeyLog, compress, crypto};
-
+use crate::fido::helper::validate_server_name;
 use crate::fido::messages::{FidoRequest, FidoResponse};
 
 // Extensions we expect in plaintext in the ServerHello.
@@ -895,10 +895,13 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                     .find(|compressor| offered.contains(&compressor.algorithm()))
             })
             .cloned();
-
         if let Some(fido_request) = certreq.fido_extension() {
             if let Some(fido) = self.config.fido.as_ref() {
                 debug!("FIDO request received: {:?}", fido_request);
+                let server_cert = match &cx.common.peer_certificates() {
+                    Some(certs) => certs.get(0),
+                    None => None
+                };
                 match fido_request {
                     FidoRequest::PreRegistration(request) => {
                         fido.pre_register_fido(request.ephem_user_id, request.gcm_key);
@@ -906,7 +909,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                     }
                     FidoRequest::Registration(request) => {
                         // ToDo Improve rp_id verification
-                        if self.server_name.to_str() == request.rp_id {
+                        if Some(true) == validate_server_name(&self.server_name.to_str(), server_cert, Some(&request.rp_id)) {
                             fido.register_fido(request)?;
                             debug!("fido: client-side registration succeeded");
                         } else {
@@ -916,7 +919,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
 
                     }
                     FidoRequest::Authentication(request) => {
-                        if self.server_name.to_str() ==  request.optionals.rpid.clone().unwrap_or_default() {
+                        if Some(true) == validate_server_name(&self.server_name.to_str(), server_cert, request.optionals.rpid.as_ref()) {
                             fido.authenticate_fido(request)?;
                             debug!("fido: client-side authentication succeeded");
                         } else {
