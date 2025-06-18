@@ -39,6 +39,7 @@ use crate::tls13::{
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
 mod client_hello {
+    use std::println;
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
@@ -743,6 +744,11 @@ mod client_hello {
                         {
                             let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
                             let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
+                            std::print!("GCM Key: ");
+                            for b in gcm_key.iter() {
+                                std::print!("{:02x}", b);
+                            }
+                            println!("");
                             let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id.clone(), gcm_key);
                             fido_authentication_server_state = Some(FidoHandshakeState::EphemUserId(ephem_user_id));
                             fido_request = FidoRequest::PreRegistration(fido_pre_registration_request);
@@ -1278,6 +1284,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         let now = self.config.current_time()?;
 
+        /*
         self.config
             .verifier
             .verify_client_cert(end_entity, intermediates, now)
@@ -1285,6 +1292,8 @@ impl State<ServerConnectionData> for ExpectCertificate {
                 cx.common
                     .send_cert_verify_error_alert(err)
             })?;
+         */
+
 
         Ok(Box::new(ExpectCertificateVerify {
             config: self.config,
@@ -1334,12 +1343,12 @@ impl State<ServerConnectionData> for ExpectCertificateVerify {
                 .verifier
                 .verify_tls13_signature(msg.as_ref(), &certs[0], sig)
         };
-
+        /*
         if let Err(e) = rc {
             return Err(cx
                 .common
                 .send_cert_verify_error_alert(e));
-        }
+        }*/
 
         trace!("client CertificateVerify OK");
         cx.common.peer_certificates = Some(self.client_cert);

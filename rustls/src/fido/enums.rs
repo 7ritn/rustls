@@ -1,6 +1,7 @@
 use std::vec::Vec;
 
 use serde::{Deserialize, Serialize};
+use serde_repr::*;
 use webauthn_rs::prelude::DiscoverableAuthentication;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -9,12 +10,12 @@ pub(crate) enum MessageType {
     PreRegistrationIndication = 0x01,
     PreRegistrationRequest = 0x02,
     PreRegistrationResponse = 0x03,
-    RegistrationIndication = 0x05,
-    RegistrationRequest = 0x06,
-    RegistrationResponse = 0x07,
-    AuthenticationIndication = 0x0a,
-    AuthenticationRequest = 0x0b,
-    AuthenticationResponse = 0x0c
+    RegistrationIndication = 0x04,
+    RegistrationRequest = 0x05,
+    RegistrationResponse = 0x06,
+    AuthenticationIndication = 0x07,
+    AuthenticationRequest = 0x08,
+    AuthenticationResponse = 0x09
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -26,91 +27,52 @@ pub enum FidoMode {
     Authentication = 2
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum FidoState {
-    #[default]
-    Initial,
-    AuthInitial,
-    AuthIndicationSent,
-    AuthIndicationReceived,
-    AuthRequestSent,
-    AuthRequestReceived,
-    AuthResponseSent,
-    AuthResponseReceived,
-    AuthSuccess,
-    AuthFailure,
-    RegInitial,
-    PreRegIndicationSent,
-    PreRegIndicationReceived,
-    PreRegRequestSent,
-    PreRegRequestReceived,
-    PreRegResponseSent,
-    PreRegResponseReceived,
-    RegIndicationSent,
-    RegIndicationReceived,
-    RegRequestSent,
-    RegRequestReceived,
-    RegResponseSent,
-    RegResponseReceived,
-    RegSuccess,
-    RegFailure,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Serialize_repr, Deserialize_repr)]
+#[repr(i64)]
 pub(crate) enum FidoPublicKeyAlgorithms {
     #[allow(non_camel_case_types)]
-    COSE_ES256 = 0,
+    COSE_ES256 = -7,
     #[allow(non_camel_case_types)]
-    COSE_ES384 = 1,
+    COSE_ES384 = -35,
     #[allow(non_camel_case_types)]
-    COSE_EDDSA = 2,
+    COSE_EDDSA = -8,
     #[allow(non_camel_case_types)]
-    COSE_ECDH_ES256 = 3,
+    COSE_ECDH_ES256 = -25,
     #[allow(non_camel_case_types)]
-    COSE_RS256 = 4,
+    COSE_RS256 = -257,
     #[allow(non_camel_case_types)]
-    COSE_RS1 = 5
+    COSE_RS1 = -65535
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 /// FidoAuthenticatorAttachment
 pub enum FidoAuthenticatorAttachment {
     /// Platform
-    Platform = 0,
+    Platform = 1,
     /// CrossPlatform
-    CrossPlatform = 1,
+    CrossPlatform = 2,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 /// FidoPolicy
 pub enum FidoPolicy {
     /// Required
-    Required = 0,
+    Required = 1,
     /// Preferred
-    Preferred = 1,
+    Preferred = 2,
     /// Discouraged
-    Discouraged = 2
+    Discouraged = 3
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub(crate) enum FidoAuthenticatorTransport {
-    USB = 0,
-    NFC = 1,
-    BLE = 2,
-    INTERNAL = 3,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[repr(u8)]
-pub(crate) enum FidoRegistrationAttestation {
-    None = 0,
-    Indirect = 1,
-    Direct = 2,
-    Enterprise = 3,
+    USB = 1,
+    NFC = 2,
+    BLE = 3,
+    INTERNAL = 4,
 }
 
 #[derive(Debug, Clone)]

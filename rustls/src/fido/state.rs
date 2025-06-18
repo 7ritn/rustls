@@ -99,25 +99,16 @@ impl FidoServer {
             resident_key: self.resident_key.clone(),
             user_verification: self.user_verification.clone()
         };
-        let mut enc_authenticator_selection = serde_cbor::to_vec(&authenticator_selection).expect("serializing authenticator_selection");
-
         let excluded_credentials: Vec<FidoCredential> = vec![];
-        let mut enc_excluded_credentials = serde_cbor::to_vec(&excluded_credentials).expect("serializing excluded_credentials");
 
         encrypt_in_place(gcm_key, &mut enc_user_name)?;
         encrypt_in_place(gcm_key, &mut enc_user_display_name)?;
         encrypt_in_place(gcm_key, &mut enc_user_id)?;
-        debug!("Decrypted enc_authenticator: {:?}", enc_authenticator_selection);
-        encrypt_in_place(gcm_key, &mut enc_authenticator_selection)?;
-        debug!("Encrypted enc_authenticator: {:?}", enc_authenticator_selection);
-        encrypt_in_place(gcm_key, &mut enc_excluded_credentials)?;
 
         let optionals = FidoRegistrationRequestOptionals{
             timeout: Some(self.timeout),
-            enc_authenticator_selection: Some(enc_authenticator_selection),
-            enc_excluded_credentials: Some(enc_excluded_credentials),
-            enc_attestation: None,
-            enc_extensions: None,
+            authenticator_selection: Some(authenticator_selection),
+            excluded_credentials: Some(excluded_credentials),
         };
 
         let registration_request = FidoRegistrationRequest::new(
@@ -176,21 +167,18 @@ impl FidoServer {
     }
 
     pub(crate) fn finish_authentication_fido(&self, fido_response: FidoAuthenticationResponse, sas: DiscoverableAuthentication) -> Result<(), Error>{
-
-        let user_handle = fido_response.optionals.user_handle.map(|user_handle| user_handle.into());
-        let credential_id = fido_response.optionals.selected_credential_id.unwrap_or_default();
-        let credential_id_string = String::from_utf8(credential_id.clone()).unwrap_or_default();
+        let credential_id_string = String::from_utf8(fido_response.selected_credential_id.clone()).unwrap_or_default();
 
         let authentication_response = AuthenticatorAssertionResponseRaw{
             authenticator_data: fido_response.authenticator_data.into(),
             client_data_json: fido_response.client_data_json.as_bytes().to_vec().into(),
             signature: fido_response.signature.into(),
-            user_handle
+            user_handle: Some(fido_response.user_handle.into())
         };
 
         let reg = PublicKeyCredential { 
             id: credential_id_string,
-            raw_id: credential_id.into(),
+            raw_id: fido_response.selected_credential_id.into(),
             response: authentication_response, 
             type_: String::new(),
             extensions: Default::default()
@@ -310,21 +298,8 @@ impl FidoClient {
         let binding = digest(&digest::SHA256, client_data_json.as_bytes());
         let client_data_hash = binding.as_ref().try_into().expect("digest client_data_json");
 
-        let authenticator_selection: FidoRegistrationAuthenticatorSelection;
-        if let Some(enc_authenticator_selection) = request.optionals.enc_authenticator_selection.clone().as_mut() {
-            let dec_authenticator_selection = decrypt_in_place(&gcm_key, enc_authenticator_selection)?;
-            authenticator_selection = serde_cbor::from_slice(dec_authenticator_selection).map_err(|e| Error::General("Could not deserialize authenticator_selection".to_string() + &*e.to_string()))?;
-        } else {
-            authenticator_selection = Default::default();
-        }
-
-        let excluded_credentials: Vec<FidoCredential>;
-        if let Some(enc_excluded_credentials) = request.optionals.enc_excluded_credentials.clone().as_mut() {
-            let dec_excluded_credentials = decrypt_in_place(&gcm_key, enc_excluded_credentials)?;
-            excluded_credentials = serde_cbor::from_slice(dec_excluded_credentials).map_err(|e| Error::General(e.to_string()))?;
-        } else {
-            excluded_credentials = Default::default();
-        }
+        let authenticator_selection = request.optionals.authenticator_selection.clone().unwrap_or_default();
+        let excluded_credentials = request.optionals.excluded_credentials.clone().unwrap_or_default();
 
         let ctap_args = RegisterArgs {
             client_data_hash,
@@ -434,8 +409,7 @@ impl FidoClient {
         };
 
         let options = FidoAuthenticationResponseOptionals{
-            user_handle,
-            selected_credential_id,
+
             client_extension_output: None,
         };
 
@@ -444,6 +418,8 @@ impl FidoClient {
             client_data_json,
             sign_result.assertion.auth_data.to_vec(),
             sign_result.assertion.signature,
+            user_handle.expect("user_handle"),
+            selected_credential_id.expect("selected_credential_id"),
             Some(options)
         )));
         
@@ -456,7 +432,7 @@ fn encrypt_in_place(key: &Vec<u8>, in_out: &mut Vec<u8>) -> Result<(), Error>{
     let key = LessSafeKey::new(unbound_key);
 
     // 12 bytes = standard GCM nonce size
-    let nonce_bytes = [0u8; 12];
+    let nonce_bytes = *b"012345678901";
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     key.seal_in_place_append_tag(nonce, aead::Aad::empty(), in_out)
@@ -467,7 +443,7 @@ fn decrypt_in_place<'in_out>(key: &[u8], in_out: &'in_out mut Vec<u8>) -> Result
     let unbound_key = UnboundKey::new(&aead::AES_256_GCM, key).map_err(|e| Error::General("Could not load key: ".to_string() + &*e.to_string()))?;
     let key = LessSafeKey::new(unbound_key);
 
-    let nonce_bytes = [0u8; 12];
+    let nonce_bytes = *b"012345678901";
     let nonce = Nonce::assume_unique_for_key(nonce_bytes);
 
     key.open_in_place(nonce, aead::Aad::empty(),in_out)

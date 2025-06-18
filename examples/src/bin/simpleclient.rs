@@ -26,8 +26,8 @@ use rustls::lock::Mutex;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-
-    let cert_file = File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open cert file");
+    //let cert_file = File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open cert file");
+    let cert_file = File::open("/home/triton/Development/fidoSSL/test/certs/ca.crt").expect("cannot open cert file");
     let mut reader = BufReader::new(cert_file);
 
     // Parse the certificate(s)
@@ -45,21 +45,29 @@ fn main() {
 
     let client_cert = CertificateDer::pem_file_iter("/home/triton/Development/rustls/target/debug/tls-certs/client.cert.pem")
         .unwrap()
-        .map(Result::unwrap)
+        .map(Result::unwrap) 
         .collect();
     let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/target/debug/tls-certs/client.key.pem").unwrap();
-    
+        
+    let ticket = vec![4,3,2,1];
+
+    let address = "127.0.0.1:12345";
+    //let address = "localhost:4443";
+
+    let servername = "demo.fido2.tls.edu";
+    //let servername = "localhost";
+
     let persistent_reg_state = Arc::new(Mutex::new(None));
     let mode = FidoMode::Authentication;
     let fido = FidoClient::new(
         mode,
-        "emily".to_string(),
-        "emily".to_string(),
-        Some(vec![4,3,2,1]),
+        "bob".to_string(),
+        "bob".to_string(),
+        Some(ticket),
         "1234".to_string(),
         persistent_reg_state.clone()
     );
-    
+
     let mut config = rustls::ClientConfig::builder()
         .with_root_certificates(root_store)
         .with_client_auth_fido(client_cert, client_key, fido)
@@ -69,19 +77,20 @@ fn main() {
     config.key_log = Arc::new(rustls::KeyLogFile::new());
 
     if mode == FidoMode::Registration {
-        let server_name = "localhost".try_into().unwrap();
+        let server_name = servername.try_into().unwrap();
         let mut conn = ClientConnection::new(Arc::new(config.clone()), server_name).unwrap();
-        let mut sock = TcpStream::connect("localhost:4443").unwrap();
+        let mut sock = TcpStream::connect(address).unwrap();
         let mut tls = Stream::new(&mut conn, &mut sock);
         tls.flush().unwrap();
         info!("fido: first handshake succeeded!");
+        sleep(Duration::from_secs(1));
     }
-    
-    sleep(Duration::from_secs(5));
 
-    let server_name = "localhost".try_into().unwrap();
+    sleep(Duration::from_secs(1));
+
+    let server_name = servername.try_into().unwrap();
     let mut conn = ClientConnection::new(Arc::new(config), server_name).unwrap();
-    let mut sock = TcpStream::connect("localhost:4443").unwrap();
+    let mut sock = TcpStream::connect(address).unwrap();
     let mut tls = Stream::new(&mut conn, &mut sock);
 
     let mut plaintext = Vec::new();

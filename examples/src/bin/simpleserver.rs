@@ -12,14 +12,13 @@ use std::fs::File;
 use std::io::{BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
-
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
 use rustls_pemfile::certs;
 use rustls::fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
 use rustls::fido::state::FidoServer;
+use rustls::server::WebPkiClientVerifier;
 
 fn load_ca_certs() -> RootCertStore {
     let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open CA file"));
@@ -28,7 +27,7 @@ fn load_ca_certs() -> RootCertStore {
         .unwrap();
     let mut store = RootCertStore::empty();
     for cert in certs {
-        store.add(CertificateDer::from(cert)).unwrap();
+        store.add(cert).unwrap();
     }
     store
 }
