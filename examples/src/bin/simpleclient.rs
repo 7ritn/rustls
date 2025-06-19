@@ -58,11 +58,11 @@ fn main() {
     //let servername = "localhost";
 
     let persistent_reg_state = Arc::new(Mutex::new(None));
-    let mode = FidoMode::Authentication;
+    let mode = FidoMode::Registration;
     let fido = FidoClient::new(
         mode,
-        "bob".to_string(),
-        "bob".to_string(),
+        "emily".to_string(),
+        "emily".to_string(),
         Some(ticket),
         "1234".to_string(),
         persistent_reg_state.clone()

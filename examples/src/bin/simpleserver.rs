@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
     // In your main():
     let ca_store = load_ca_certs();
-    let verifier = WebPkiClientVerifier::builder(ca_store.into()).build().unwrap();
+    let verifier = WebPkiClientVerifier::builder(ca_store.into()).allow_unauthenticated().build().expect("failed to build client verifier");
 
     let fido_config = FidoServer::new(
         "localhost".to_string(),
@@ -78,7 +78,8 @@ fn main() -> Result<(), Box<dyn StdError>> {
         FidoPolicy::Required,
         FidoAuthenticatorAttachment::CrossPlatform,
         60000,
-        vec![4, 3, 2, 1]
+        vec![4, 3, 2, 1],
+        true
     );
 
     let config = ServerConfig::builder()

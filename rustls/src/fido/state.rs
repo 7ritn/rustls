@@ -18,7 +18,7 @@ use webauthn_rs_proto::{AuthenticatorAssertionResponseRaw, AuthenticatorAttestat
 use x509_parser::nom::AsBytes;
 use crate::Error;
 use crate::fido::enums::{FidoAuthenticatorAttachment, FidoMode, FidoPolicy};
-use crate::fido::messages::{FidoAuthenticationResponseOptionals, FidoClientData, FidoCredential, FidoPreRegistrationRequest, FidoPreRegistrationResponse, FidoRegistrationAuthenticatorSelection, FidoRegistrationRequestOptionals, FidoRegistrationResponse, FidoResponse};
+use crate::fido::messages::{FidoClientData, FidoCredential, FidoPreRegistrationRequest, FidoPreRegistrationResponse, FidoRegistrationAuthenticatorSelection, FidoRegistrationRequestOptionals, FidoRegistrationResponse, FidoResponse};
 use crate::lock::Mutex;
 use crate::sync::Arc;
 use super::{db::{FidoDB, User}, enums::FidoPublicKeyAlgorithms, messages::{FidoAuthenticationRequest, FidoAuthenticationRequestOptionals, FidoAuthenticationResponse, FidoRegistrationRequest}};
@@ -36,6 +36,7 @@ pub struct FidoServer {
     pub(crate) authenticator_attachment: FidoAuthenticatorAttachment,
     pub(crate) timeout: u32,
     pub(crate) ticket: Vec<u8>,
+    pub(crate) mandatory: bool,
     pub(crate) registration_state: HashMap<EphemUserId, ((FidoRegistrationRequest, UserId), PasskeyRegistration)>,
     pub(crate) pre_registration_state: HashMap<Vec<u8>, Vec<u8>>
 }
@@ -49,7 +50,8 @@ impl FidoServer {
         resident_key: FidoPolicy,
         authenticator_attachment: FidoAuthenticatorAttachment,
         timeout: u32,
-        ticket: Vec<u8>
+        ticket: Vec<u8>,
+        mandatory: bool
     ) -> Self {
         let rp_origin = Url::parse(&format!("https://{}", rp_id.clone()))
             .expect("Invalid DN");
@@ -68,6 +70,7 @@ impl FidoServer {
             authenticator_attachment,
             timeout,
             ticket,
+            mandatory,
             registration_state: Default::default(),
             pre_registration_state: Default::default()
         }
@@ -231,7 +234,7 @@ pub struct RegistrationState {
 }
 
 impl FidoClient {
-    /// Create new fido client
+    /// Create a new fido client
     pub fn new(
         mode: FidoMode,
         user_name: String,
@@ -408,19 +411,13 @@ impl FidoClient {
             None => None
         };
 
-        let options = FidoAuthenticationResponseOptionals{
-
-            client_extension_output: None,
-        };
-
         let mut response = self.response_buffer.lock().unwrap();
         *response = Some(FidoResponse::Authentication(FidoAuthenticationResponse::new(
             client_data_json,
             sign_result.assertion.auth_data.to_vec(),
             sign_result.assertion.signature,
             user_handle.expect("user_handle"),
-            selected_credential_id.expect("selected_credential_id"),
-            Some(options)
+            selected_credential_id.expect("selected_credential_id")
         )));
         
         Ok(())

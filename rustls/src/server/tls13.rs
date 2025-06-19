@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use std::prelude::rust_2024::ToString;
 pub(super) use client_hello::CompleteClientHelloHandling;
 use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
@@ -39,7 +38,6 @@ use crate::tls13::{
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
 mod client_hello {
-    use std::println;
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
@@ -744,11 +742,6 @@ mod client_hello {
                         {
                             let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
                             let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
-                            std::print!("GCM Key: ");
-                            for b in gcm_key.iter() {
-                                std::print!("{:02x}", b);
-                            }
-                            println!("");
                             let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id.clone(), gcm_key);
                             fido_authentication_server_state = Some(FidoHandshakeState::EphemUserId(ephem_user_id));
                             fido_request = FidoRequest::PreRegistration(fido_pre_registration_request);
@@ -1129,131 +1122,52 @@ impl State<ServerConnectionData> for ExpectCertificate {
             HandshakePayload::CertificateTls13
         )?;
 
-        // We don't send any CertificateRequest extensions, so any extensions
-        // here are illegal.
-        // if certp.any_entry_has_extension() {
-        //    return Err(PeerMisbehaved::UnsolicitedCertExtension.into());
-        //}
-
         trace!("Received Certificate message");
 
         if let Some(fido) = &Arc::<ServerConfig>::clone(&self.config).fido {
-            let mandatory = true;
+            let mut fido = fido.lock().expect("lock FidoServer");
+            let mandatory = fido.mandatory;
 
             if self.fido_handshake_state.is_some() && certp.fido_extension().is_some() {
-                let mut fido = fido.lock().expect("lock FidoServer");
-                let fido_response = certp.fido_extension().unwrap();
+                let fido_response = certp.fido_extension().expect("fido extension");
                 debug!("fido: received response: {:?}", fido_response);
                 match fido_response {
                     FidoResponse::Authentication(fido_authentication_response) => {
-                        let Some(FidoHandshakeState::SAS(sas)) = self.fido_handshake_state
-                            else {
-                                return if mandatory {
-                                    Err(Error::General("fido: SAS missing".into()))
-                                } else {
-                                    self.transcript.abandon_client_auth();
-                                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                        config: self.config,
-                                        suite: self.suite,
-                                        key_schedule: self.key_schedule,
-                                        transcript: self.transcript,
-                                        send_tickets: self.send_tickets,
-                                    });
-                                    Ok(return_box)
-                                } };
-                        fido.finish_authentication_fido(fido_authentication_response.clone(), sas)?;
+                        if let Some(FidoHandshakeState::SAS(sas)) = self.fido_handshake_state {
+                            if let Err(e) = fido.finish_authentication_fido(
+                                fido_authentication_response.clone(),
+                                sas
+                            ) {
+                                if mandatory { return Err(e) }
+                            }
+                        } else if mandatory { return Err(Error::General("fido: SAS missing".into())) };
                     },
                     FidoResponse::PreRegistration(fido_pre_registration_response) => {
-                        let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state
-                            else {
-                                return if mandatory {
-                                    Err(Error::General("fido: EphemUserId missing".into()))
-                                } else {
-                                    self.transcript.abandon_client_auth();
-                                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                        config: self.config,
-                                        suite: self.suite,
-                                        key_schedule: self.key_schedule,
-                                        transcript: self.transcript,
-                                        send_tickets: self.send_tickets,
-                                    });
-                                    Ok(return_box)
-                            } };
+                    if let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state {
                         if let Err(e) = fido.start_register_fido(
                             ephem_user_id,
                             fido_pre_registration_response.ticket.clone(),
                             fido_pre_registration_response.user_name.clone(),
                             fido_pre_registration_response.user_display_name.clone()
                         ) {
-                            return if mandatory {
-                                Err(Error::General("fido: start_register_fido failed".to_string() + &*e.to_string()))
-                            } else {
-                                self.transcript.abandon_client_auth();
-                                let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                    config: self.config,
-                                    suite: self.suite,
-                                    key_schedule: self.key_schedule,
-                                    transcript: self.transcript,
-                                    send_tickets: self.send_tickets,
-                                });
-                                Ok(return_box)
-                            }
+                            if mandatory { return Err(e) }
                         }
-                    },
-                    FidoResponse::Registration(fido_registration_response) => {
-                        let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state
-                            else {
-                                return if mandatory {
-                                    Err(Error::General("fido: user id missing".into()))
-                                } else {
-                                    self.transcript.abandon_client_auth();
-                                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                        config: self.config,
-                                        suite: self.suite,
-                                        key_schedule: self.key_schedule,
-                                        transcript: self.transcript,
-                                        send_tickets: self.send_tickets,
-                                    });
-                                    Ok(return_box)
-                                }
+                    } else if mandatory { return Err(Error::General("fido: ephem user id missing".into())) }
+                },
+                FidoResponse::Registration(fido_registration_response) => {
+                        if let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state {
+                            if let Err(e) = fido.finish_register_fido(
+                                ephem_user_id,
+                                user_id,
+                                fido_registration_response.client_data_json.clone(),
+                                fido_registration_response.attestation_object.clone()
+                            ) {
+                                if mandatory { return Err(e) }
                             };
-                        if let Err(e) = fido.finish_register_fido(
-                            ephem_user_id,
-                            user_id,
-                            fido_registration_response.client_data_json.clone(),
-                            fido_registration_response.attestation_object.clone()
-                        ) {
-                            return if mandatory {
-                                Err(Error::General("fido: finish_register_fido failed".to_string() + &*e.to_string()))
-                            } else {
-                                self.transcript.abandon_client_auth();
-                                let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                                    config: self.config,
-                                    suite: self.suite,
-                                    key_schedule: self.key_schedule,
-                                    transcript: self.transcript,
-                                    send_tickets: self.send_tickets,
-                                });
-                                Ok(return_box)
-                            }
-                        }
+                        } else if mandatory { return Err(Error::General("fido: user id missing".into())) }
                     },
                 }
-            } else {
-                return if mandatory {
-                    Err(Error::General("fido: client misbehaved".into()))
-                } else {
-                    self.transcript.abandon_client_auth();
-                    let return_box: Box<dyn State<ServerConnectionData>> = Box::new(ExpectFinished {
-                        config: self.config,
-                        suite: self.suite,
-                        key_schedule: self.key_schedule,
-                        transcript: self.transcript,
-                        send_tickets: self.send_tickets,
-                    });
-                    Ok(return_box)
-                }
-            }
+            } else if mandatory { return Err(Error::General("fido: client misbehaved".into())) }
         }
 
         let client_cert = certp.into_certificate_chain();
@@ -1284,15 +1198,26 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         let now = self.config.current_time()?;
 
-        /*
-        self.config
+        if let Err(e) = self.config
             .verifier
             .verify_client_cert(end_entity, intermediates, now)
-            .map_err(|err| {
-                cx.common
-                    .send_cert_verify_error_alert(err)
-            })?;
-         */
+        {
+            if !mandatory {
+                debug!("client auth requested but invalid certificate supplied, still expecting certificate verify message");
+                self.transcript.abandon_client_auth();
+                return Ok(Box::new(ExpectCertificateVerify {
+                    config: self.config,
+                    suite: self.suite,
+                    transcript: self.transcript,
+                    key_schedule: self.key_schedule,
+                    client_cert: client_cert.into_owned(),
+                    send_tickets: self.send_tickets,
+                    invalid_cert: true
+                }))
+            }
+
+            return Err(cx.common.send_cert_verify_error_alert(e))
+        }
 
 
         Ok(Box::new(ExpectCertificateVerify {
@@ -1302,6 +1227,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
             key_schedule: self.key_schedule,
             client_cert: client_cert.into_owned(),
             send_tickets: self.send_tickets,
+            invalid_cert: false
         }))
     }
 
@@ -1317,6 +1243,7 @@ struct ExpectCertificateVerify {
     key_schedule: KeyScheduleTrafficWithClientFinishedPending,
     client_cert: CertificateChain<'static>,
     send_tickets: usize,
+    invalid_cert: bool
 }
 
 impl State<ServerConnectionData> for ExpectCertificateVerify {
@@ -1328,6 +1255,17 @@ impl State<ServerConnectionData> for ExpectCertificateVerify {
     where
         Self: 'm,
     {
+        if self.invalid_cert {
+            trace!("Ignoring certificate-verify message");
+            self.transcript.add_message(&m);
+            return Ok(Box::new(ExpectFinished {
+                config: self.config,
+                suite: self.suite,
+                key_schedule: self.key_schedule,
+                transcript: self.transcript,
+                send_tickets: self.send_tickets,
+            }))
+        }
         let rc = {
             let sig = require_handshake_msg!(
                 m,
@@ -1343,12 +1281,12 @@ impl State<ServerConnectionData> for ExpectCertificateVerify {
                 .verifier
                 .verify_tls13_signature(msg.as_ref(), &certs[0], sig)
         };
-        /*
+
         if let Err(e) = rc {
             return Err(cx
                 .common
                 .send_cert_verify_error_alert(e));
-        }*/
+        }
 
         trace!("client CertificateVerify OK");
         cx.common.peer_certificates = Some(self.client_cert);

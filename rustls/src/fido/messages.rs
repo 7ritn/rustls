@@ -285,62 +285,6 @@ pub(crate) struct FidoAuthenticationResponse {
     pub selected_credential_id: Vec<u8>
 }
 
-#[derive(Debug, Clone, Default)]
-pub(crate) struct FidoAuthenticationResponseOptionals {
-    pub client_extension_output: Option<Vec<FidoExtension>>
-}
-
-impl Serialize for FidoAuthenticationResponseOptionals {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let map_length = self.client_extension_output.is_some() as usize;
-        let mut map = serializer.serialize_map(Some(map_length))?;
-        if let Some(client_extension_output) = &self.client_extension_output { map.serialize_entry(&3, client_extension_output)? }
-        map.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for FidoAuthenticationResponseOptionals {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct FieldVisitor;
-
-        impl<'de> Visitor<'de> for FieldVisitor {
-            type Value = FidoAuthenticationResponseOptionals;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("a map with integer keys 1..=5")
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: MapAccess<'de>,
-            {
-                let mut client_extension_output = None;
-
-                while let Some(key) = map.next_key::<u8>()? {
-                    match key {
-                        1 => client_extension_output = map.next_value()?,
-                        _ => { let _ : de::IgnoredAny = map.next_value()?; }
-                    }
-                }
-
-                let a = FidoAuthenticationResponseOptionals {
-                    client_extension_output
-                };
-
-                Ok(a)
-            }
-        }
-
-        deserializer.deserialize_map(FieldVisitor)
-    }
-}
-
 // Group Enums
 
 #[derive(Debug, Clone, Serialize)]
@@ -377,7 +321,7 @@ impl<'de> Deserialize<'de> for FidoIndication {
                         message_type
                     })),
                     4 => {
-                        // For Registration we need the ephem_user_id
+                        // For Registration, we need the ephem_user_id
                         let ephem_user_id_bytes: &[u8] = seq.next_element()?
                             .ok_or_else(|| de::Error::invalid_length(1, &self))?;
 
@@ -522,7 +466,7 @@ impl FidoAuthenticationRequest {
 }
 
 impl FidoAuthenticationResponse {
-    pub(crate) fn new(client_data_json: String, authenticator_data: Vec<u8>, signature: Vec<u8>, user_handle: Vec<u8>, selected_credential_id: Vec<u8>, options: Option<FidoAuthenticationResponseOptionals>) -> Self {
+    pub(crate) fn new(client_data_json: String, authenticator_data: Vec<u8>, signature: Vec<u8>, user_handle: Vec<u8>, selected_credential_id: Vec<u8>) -> Self {
         Self { 
             message_type: MessageType::AuthenticationResponse as u8,
             client_data_json,
@@ -535,19 +479,16 @@ impl FidoAuthenticationResponse {
 }
 
 // Implement encodings
-
 macro_rules! impl_codec_for {
     ($type:ty, $error_msg:expr) => {
         impl Codec<'_> for $type {
             fn encode(&self, bytes: &mut Vec<u8>) {
                 let mut serialized = to_vec_packed(self).unwrap();
-                std::println!("{:x?}", serialized);
                 bytes.append(&mut serialized);
             }
 
             fn read(r: &mut Reader<'_>) -> Result<Self, InvalidMessage> {
                 let bytes = r.rest();
-                std::println!("{:x?}", bytes);
                 serde_cbor::from_slice(bytes).map_err(|_| InvalidMessage::MissingData($error_msg))
             }
         }
