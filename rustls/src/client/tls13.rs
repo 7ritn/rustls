@@ -1392,8 +1392,7 @@ impl State<ClientConnectionData> for ExpectFinished {
         let mut fido_response = None;
         if let Some(fido_client) = st.config.fido.as_ref() {
             debug!("Retrieving fido response");
-            let mut buffer = fido_client.response_buffer.lock().expect("lock response_buffer");
-            fido_response = buffer.take();
+            fido_response = fido_client.take_response_buffer();
         }
 
         /* Send our authentication/finished messages.  These are still encrypted

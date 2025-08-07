@@ -17,11 +17,11 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
 use rustls_pemfile::certs;
 use rustls_fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
-use rustls_fido::state::FidoServer;
+use rustls_fido::server::FidoServer;
 use rustls::server::WebPkiClientVerifier;
 
 fn load_ca_certs() -> RootCertStore {
-    let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open CA file"));
+    let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/tls-certs/ca.cert.pem").expect("cannot open CA file"));
     let certs = certs(&mut reader)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -58,8 +58,8 @@ fn handle_client(stream: TcpStream, config: Arc<ServerConfig>) -> Result<(), Box
 fn main() -> Result<(), Box<dyn StdError>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
 
-    let cert_file = "/home/triton/Development/rustls/target/debug/tls-certs/server.cert.pem";
-    let private_key_file = "/home/triton/Development/rustls/target/debug/tls-certs/server.key.pem";
+    let cert_file = "/home/triton/Development/rustls/tls-certs/server.cert.pem";
+    let private_key_file = "/home/triton/Development/rustls/tls-certs/server.key.pem";
 
     let certs = CertificateDer::pem_file_iter(cert_file)
         .unwrap()
@@ -74,12 +74,13 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let fido_config = FidoServer::new(
         "localhost".to_string(),
         "localhost".to_string(),
-        FidoPolicy::Preferred,
+        FidoPolicy::Discouraged,
         FidoPolicy::Required,
         FidoAuthenticatorAttachment::CrossPlatform,
         60000,
         vec![4, 3, 2, 1],
-        true
+        true,
+        "./fido.db3"
     );
 
     let config = ServerConfig::builder()

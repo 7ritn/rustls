@@ -7,7 +7,7 @@ use super::client_conn::Resumption;
 use crate::builder::{ConfigBuilder, WantsVerifier};
 use crate::client::{ClientConfig, EchMode, ResolvesClientCert, handy};
 use crate::error::Error;
-use rustls_fido::state::FidoClient;
+use rustls_fido::client::FidoClient;
 use crate::key_log::NoKeyLog;
 use crate::sign::{CertifiedKey, SingleCertAndKey};
 use crate::sync::Arc;
@@ -163,7 +163,7 @@ impl ConfigBuilder<ClientConfig, WantsClientCert> {
         fido: FidoClient
     ) -> Result<ClientConfig, Error> {
         let certified_key = CertifiedKey::from_der(cert_chain, key_der, &self.provider)?;
-        if fido.mode == FidoMode::Registration && fido.ticket.is_none() {
+        if fido.mode() == FidoMode::Registration && fido.ticket().is_none() {
             return Err(Error::General("If fido.mode == registration, ticket is required".to_string()))
         }
         Ok(ClientConfig {

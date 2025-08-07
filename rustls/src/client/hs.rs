@@ -408,10 +408,9 @@ fn emit_client_hello_for_retry(
     if let Some(fido) = config.fido.as_ref()
     {
         let indication;
-        match fido.mode {
+        match fido.mode() {
             FidoMode::Registration => {
-                let binding = fido.persistent_reg_state.lock().unwrap();
-                let registration_state = binding.as_ref();
+                let registration_state = fido.current_reg_state();
                 match registration_state {
                     None => {
                         // Pre Registration

@@ -34,7 +34,6 @@ zlib = ["dep:zlib-rs"]
 rustversion = { version = "1.0.6", optional = true }
 
 [dependencies]
-authenticator = { workspace = true }
 aws-lc-rs = { workspace = true, optional = true }
 base64 = { workspace = true }
 brotli = { workspace = true, optional = true }
@@ -45,9 +44,7 @@ log = { workspace = true, optional = true }
 once_cell = { workspace = true }
 ring = { workspace = true, optional = true }
 rustls-fido = { workspace = true }
-rusqlite = { workspace = true }
 serde = { workspace = true }
-serde_tuple = { workspace = true }
 serde_cbor = { workspace = true }
 serde_json = { workspace = true }
 subtle = { workspace = true }
@@ -55,11 +52,7 @@ webpki = { workspace = true }
 pki-types = { workspace = true }
 zeroize = { workspace = true }
 zlib-rs = { workspace = true, optional = true }
-webauthn-rs = { workspace = true }
-webauthn-rs-proto = { workspace = true }
 x509-parser = { workspace = true }
-serde_bytes = "0.11.17"
-serde_repr = "0.1.20"
 
 [dev-dependencies]
 bencher = { workspace = true }

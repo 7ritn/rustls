@@ -20,13 +20,13 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ClientConnection, RootCertStore, Stream};
 use rustls_pemfile::certs;
 use rustls_fido::enums::FidoMode;
-use rustls_fido::state::FidoClient;
+use rustls_fido::client::FidoClient;
 // This is the function you're missing
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-    //let cert_file = File::open("/home/triton/Development/rustls/target/debug/tls-certs/ca.cert.pem").expect("cannot open cert file");
-    let cert_file = File::open("/home/triton/Development/fidoSSL/test/certs/ca.crt").expect("cannot open cert file");
+    let cert_file = File::open("/home/triton/Development/rustls/tls-certs/ca.cert.pem").expect("cannot open cert file");
+    //let cert_file = File::open("/home/triton/Development/fidoSSL/test/certs/ca.crt").expect("cannot open cert file");
     let mut reader = BufReader::new(cert_file);
 
     // Parse the certificate(s)
@@ -42,33 +42,31 @@ fn main() {
             .expect("failed to add cert to root store");
     }
 
-    let client_cert = CertificateDer::pem_file_iter("/home/triton/Development/rustls/target/debug/tls-certs/client.cert.pem")
+    let client_cert = CertificateDer::pem_file_iter("/home/triton/Development/rustls/tls-certs/client.cert.pem")
         .unwrap()
         .map(Result::unwrap) 
         .collect();
-    let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/target/debug/tls-certs/client.key.pem").unwrap();
+    let client_key = PrivateKeyDer::from_pem_file("/home/triton/Development/rustls/tls-certs/client.key.pem").unwrap();
         
     let ticket = vec![4,3,2,1];
 
-    let address = "127.0.0.1:12345";
-    //let address = "localhost:4443";
+    //let address = "127.0.0.1:12345";
+    let address = "localhost:4443";
 
-    let servername = "demo.fido2.tls.edu";
-    //let servername = "localhost";
+    //let servername = "demo.fido2.tls.edu";
+    let servername = "localhost";
 
-    let persistent_reg_state = Arc::new(Mutex::new(None));
-    let mode = FidoMode::Registration;
+    let mode = FidoMode::Authentication;
     let fido = FidoClient::new(
         mode,
-        "emily".to_string(),
-        "emily".to_string(),
+        Some("emily".to_string()),
+        Some("emily".to_string()),
         Some(ticket),
-        "1234".to_string(),
-        persistent_reg_state.clone()
+        "1234".to_string()
     );
 
     let mut config = rustls::ClientConfig::builder()
-        .with_root_certificates(root_store)
+            .with_root_certificates(root_store)
         .with_client_auth_fido(client_cert, client_key, fido)
         .unwrap();
 

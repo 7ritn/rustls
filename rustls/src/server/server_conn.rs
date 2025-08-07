@@ -10,7 +10,7 @@ use std::io;
 use pki_types::{DnsName, UnixTime};
 
 use super::hs;
-use rustls_fido::state::FidoServer;
+use rustls_fido::server::FidoServer;
 use crate::lock::Mutex;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;

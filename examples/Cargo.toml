@@ -17,9 +17,6 @@ rcgen = { workspace = true }
 rustls = { path = "../rustls", features = ["logging"] }
 rustls-fido = { workspace = true }
 rustls-pemfile = "2.2.0"
-serde = { workspace = true }
-serde_tuple = { workspace = true }
-serde_cbor = { workspace = true }
 
 tokio = { workspace = true }
 webpki-roots = { workspace = true }

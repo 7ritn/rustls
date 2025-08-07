@@ -7,7 +7,7 @@ use pki_types::{ServerName, UnixTime};
 
 use super::handy::NoClientSessionStorage;
 use super::hs;
-use rustls_fido::state::FidoClient;
+use rustls_fido::client::FidoClient;
 #[cfg(feature = "std")]
 use crate::WantsVerifier;
 use crate::builder::ConfigBuilder;
