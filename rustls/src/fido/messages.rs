@@ -1,6 +1,6 @@
 use crate::{msgs::codec::{Codec, Reader}, InvalidMessage};
 use std::vec::Vec;
-use rustls_fido::messages::{FidoAuthenticationIndication, FidoAuthenticationRequest, FidoAuthenticationResponse, FidoIndication, FidoPreRegistrationIndication, FidoPreRegistrationRequest, FidoPreRegistrationResponse, FidoRegistrationIndication, FidoRegistrationRequest, FidoRegistrationResponse, FidoRequest, FidoResponse};
+use rustls_fido::messages::{FidoAuthenticationIndication, FidoAuthenticationRequest, FidoAuthenticationResponse, FidoIndication, FidoPreIndication, FidoPreRequest, FidoRegistrationIndication, FidoRegistrationRequest, FidoRegistrationResponse, FidoRequest, FidoResponse};
 // Implement encodings
 macro_rules! impl_codec_for {
     ($type:ty, $error_msg:expr) => {
@@ -18,9 +18,8 @@ macro_rules! impl_codec_for {
     };
 }
 
-impl_codec_for!(FidoPreRegistrationIndication, "Could not parse FIDO pre registration indication");
-impl_codec_for!(FidoPreRegistrationRequest, "Could not parse FIDO pre registration request");
-impl_codec_for!(FidoPreRegistrationResponse, "Could not parse FIDO pre registration response");
+impl_codec_for!(FidoPreIndication, "Could not parse FIDO pre registration indication");
+impl_codec_for!(FidoPreRequest, "Could not parse FIDO pre registration request");
 impl_codec_for!(FidoRegistrationIndication, "Could not parse FIDO registration indication");
 impl_codec_for!(FidoRegistrationRequest, "Could not parse FIDO registration request");
 impl_codec_for!(FidoRegistrationResponse, "Could not parse FIDO registration response");

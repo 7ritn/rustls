@@ -908,7 +908,6 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
                         debug!("fido: client-side pre-registration succeeded");
                     }
                     FidoRequest::Registration(request) => {
-                        // ToDo Improve rp_id verification
                         if Some(true) == validate_server_name(&self.server_name.to_str(), server_cert, Some(&request.rp_id)) {
                             fido.register_fido(request)?;
                             debug!("fido: client-side registration succeeded");

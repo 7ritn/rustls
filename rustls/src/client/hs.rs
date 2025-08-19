@@ -24,7 +24,7 @@ use crate::crypto::{ActiveKeyExchange, KeyExchangeAlgorithm};
 use crate::enums::{AlertDescription, CipherSuite, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
 use rustls_fido::enums::FidoMode;
-use rustls_fido::messages::{FidoAuthenticationIndication, FidoIndication, FidoPreRegistrationIndication, FidoRegistrationIndication};
+use rustls_fido::messages::{FidoAuthenticationIndication, FidoIndication};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;
@@ -407,28 +407,16 @@ fn emit_client_hello_for_retry(
 
     if let Some(fido) = config.fido.as_ref()
     {
-        let indication;
-        match fido.mode() {
+        let indication = match fido.mode() {
             FidoMode::Registration => {
-                let registration_state = fido.current_reg_state();
-                match registration_state {
-                    None => {
-                        // Pre Registration
-                        debug!("Fido: Indicating PreRegistration");
-                        indication = FidoIndication::PreRegistration(FidoPreRegistrationIndication::new())
-                    }
-                    Some(reg_state) => {
-                        // Registration
-                        debug!("Fido: Indicating Registration");
-                        indication = FidoIndication::Registration(FidoRegistrationIndication::new(&reg_state.ephem_user_id))
-                    }
-                }
+                debug!("Fido: Indicating some Registration");
+                fido.get_registration_indication()?
             }
             FidoMode::Authentication => {
                 debug!("Fido: Indicating Authentication");
-                indication = FidoIndication::Authentication(FidoAuthenticationIndication::new());
+                FidoIndication::Authentication(FidoAuthenticationIndication::new())
             }
-        }
+        };
         exts.push(ClientExtension::FidoIndication(indication));
     }
 

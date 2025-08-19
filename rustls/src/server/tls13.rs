@@ -1,7 +1,10 @@
+use crate::std::io::Write;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
+use std::fs::OpenOptions;
 use std::println;
+use std::time::Instant;
 pub(super) use client_hello::CompleteClientHelloHandling;
 use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;
@@ -39,6 +42,8 @@ use crate::tls13::{
 use crate::{ConnectionTrafficSecrets, compress, rand, verify};
 
 mod client_hello {
+    use crate::std::io::Write;
+use std::fs::OpenOptions;
     use super::*;
     use crate::compress::CertCompressor;
     use crate::crypto::SupportedKxGroup;
@@ -187,8 +192,13 @@ mod client_hello {
                         .find(|compressor| offered.contains(&compressor.algorithm()))
                         .cloned());
 
+            let time = Instant::now();
             let fido_indication = client_hello.fido_indicated();
             let mut fido_handshake_state = None;
+            let elapsed = time.elapsed();
+
+            let mut file = OpenOptions::new().append(true).create(true).open("/home/triton/Documents/Uni/Masterarbeit/perf.txt").unwrap();
+            write!(file, "{} ", elapsed.as_nanos()).expect("Unable to write to file");
             
 
             let early_data_requested = client_hello.early_data_extension_offered();
@@ -725,6 +735,7 @@ mod client_hello {
         cr.extensions
             .push(CertReqExtension::SignatureAlgorithms(schemes.to_vec()));
 
+        let time = Instant::now();
         if let Some(fido_indication) = fido_option {
             if let Some(fido_server_option) = config.fido.as_ref() {
                 let mut fido = fido_server_option.lock().expect("lock fido server");
@@ -747,12 +758,12 @@ mod client_hello {
                             fido_authentication_server_state = Some(FidoHandshakeState::EphemUserId(ephem_user_id));
                             fido_request = FidoRequest::PreRegistration(fido_pre_registration_request);
                         },
-                    FidoIndication::Registration(fido_registration_indication) =>
+                    FidoIndication::Registration(reg_indic) =>
                         {
-                            let (registration_request, user_id) = fido.get_registration_request(&fido_registration_indication.ephem_user_id)?;
-                            fido_authentication_server_state = Some(FidoHandshakeState::EphemAndUserId((fido_registration_indication.ephem_user_id, user_id.clone())));
+                            let (registration_request, user_id) = fido.start_register_fido(reg_indic.ephem_user_id.clone(), reg_indic.enc_ticket, reg_indic.enc_user_name, reg_indic.enc_user_display_name)?;
+                            fido_authentication_server_state = Some(FidoHandshakeState::EphemAndUserId((reg_indic.ephem_user_id, user_id.clone())));
                             fido_request = FidoRequest::Registration(registration_request.clone())
-                        },
+                        }
                 }
 
                 debug!("fido: sending request {:?}", fido_request);
@@ -760,6 +771,9 @@ mod client_hello {
                 cr.extensions.push(CertReqExtension::FidoRequest(fido_request));
             }
         };
+        let elapsed = time.elapsed();
+        let mut file = OpenOptions::new().append(true).create(true).open("/home/triton/Documents/Uni/Masterarbeit/perf.txt").unwrap();
+        write!(file, "{} ", elapsed.as_nanos()).expect("Unable to write to file");
 
         if !config.cert_decompressors.is_empty() {
             cr.extensions
@@ -1125,6 +1139,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
         trace!("Received Certificate message");
 
+        let now = Instant::now();
         if let Some(fido) = &Arc::<ServerConfig>::clone(&self.config).fido {
             let mut fido = fido.lock().expect("lock FidoServer");
             let mandatory = fido.is_mandatory();
@@ -1144,19 +1159,7 @@ impl State<ServerConnectionData> for ExpectCertificate {
                             }
                         } else if mandatory { return Err(Error::General("fido: SAS missing".into())) };
                     },
-                    FidoResponse::PreRegistration(fido_pre_registration_response) => {
-                    if let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state {
-                        if let Err(e) = fido.start_register_fido(
-                            ephem_user_id,
-                            fido_pre_registration_response.ticket.clone(),
-                            fido_pre_registration_response.user_name.clone(),
-                            fido_pre_registration_response.user_display_name.clone()
-                        ) {
-                            if mandatory { return Err(e.into()) }
-                        }
-                    } else if mandatory { return Err(Error::General("fido: ephem user id missing".into())) }
-                },
-                FidoResponse::Registration(fido_registration_response) => {
+                    FidoResponse::Registration(fido_registration_response) => {
                         if let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state {
                             if let Err(e) = fido.finish_register_fido(
                                 ephem_user_id,
@@ -1169,8 +1172,11 @@ impl State<ServerConnectionData> for ExpectCertificate {
                         } else if mandatory { return Err(Error::General("fido: user id missing".into())) }
                     },
                 }
-            } else if mandatory { return Err(Error::General("fido: client misbehaved".into())) }
+            }
         }
+        let elapsed = now.elapsed();
+        let mut file = OpenOptions::new().append(true).create(true).open("/home/triton/Documents/Uni/Masterarbeit/perf.txt").unwrap();
+        writeln!(file, "{}", elapsed.as_nanos()).expect("Unable to write to file");
 
         let client_cert = certp.into_certificate_chain();
 

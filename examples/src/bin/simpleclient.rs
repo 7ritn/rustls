@@ -11,7 +11,7 @@
 use std::fs::File;
 use std::io::{stdout, BufReader, Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::Duration;
 use log::info;
