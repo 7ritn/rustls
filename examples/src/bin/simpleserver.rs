@@ -21,7 +21,7 @@ use rustls_fido::server::FidoServer;
 use rustls::server::WebPkiClientVerifier;
 
 fn load_ca_certs() -> RootCertStore {
-    let mut reader = BufReader::new(File::open("/home/triton/Development/rustls/tls-certs/ca.cert.pem").expect("cannot open CA file"));
+    let mut reader = BufReader::new(File::open("./tls-certs/ca.cert.pem").expect("cannot open CA file"));
     let certs = certs(&mut reader)
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
@@ -58,8 +58,8 @@ fn handle_client(stream: TcpStream, config: Arc<ServerConfig>) -> Result<(), Box
 fn main() -> Result<(), Box<dyn StdError>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
-    let cert_file = "/home/triton/Development/rustls/tls-certs/server.cert.pem";
-    let private_key_file = "/home/triton/Development/rustls/tls-certs/server.key.pem";
+    let cert_file = "./tls-certs/server.cert.pem";
+    let private_key_file = "./tls-certs/server.key.pem";
 
     let certs = CertificateDer::pem_file_iter(cert_file)
         .unwrap()
