@@ -41,18 +41,18 @@ cargo run --package rustls-examples --bin fidoserver
 This client can both register and authenticate a USB FIDO2 token with the server. All configuration parameters can be specified using environment variables.
 The FIDO mode can also be specified using the command line with the `--authenticate` and `--register` flags.
 
-| Variable Name      | Description                                   | Default Value                 | Example Value                     |
-|--------------------|-----------------------------------------------|-------------------------------|-----------------------------------|
-| `CA_CERT_PATH`     | Path to the CA certificate file               | `./tls-certs/ca.cert.pem`     | `/etc/ssl/certs/ca.cert.pem`      |
-| `CLIENT_CERT_PATH` | Path to the client certificate file           | `./tls-certs/client.cert.pem` | `/etc/ssl/certs/client.cert.pem`  |
-| `CLIENT_KEY_PATH`  | Path to the client private key file           | `./tls-certs/client.key.pem`  | `/etc/ssl/private/client.key.pem` |
-| `SERVER_ADDRESS`   | Address and port of the server to connect to  | `localhost:4443`              | `example.com:443`                 |
-| `SERVER_NAME`      | Server name for TLS SNI                       | `localhost`                   | `example.com`                     |
-| `FIDO_MODE`        | FIDO mode: "registration" or "authentication" | `registration`                | `authentication`                  |
-| `FIDO_USERNAME`    | FIDO username for authentication/registration | `user`                        | `alice`                           |
-| `FIDO_DISPLAYNAME` | FIDO display name                             | `user`                        | `Alice Smith`                     |
-| `FIDO_PIN`         | FIDO PIN for authentication                   | `1234`                        | `5678`                            |
-| `FIDO_TICKET`      | FIDO ticket as comma-separated bytes          | `4,3,2,1`                     | `1,2,3,4`                         |
+| Variable Name            | Description                                   | Default Value                 | Example Value                     |
+|--------------------------|-----------------------------------------------|-------------------------------|-----------------------------------|
+| `CA_CERT_PATH`           | Path to the CA certificate file               | `./tls-certs/ca.cert.pem`     | `/etc/ssl/certs/ca.cert.pem`      |
+| `CLIENT_CERT_PATH`       | Path to the client certificate file           | `./tls-certs/client.cert.pem` | `/etc/ssl/certs/client.cert.pem`  |
+| `CLIENT_KEY_PATH`        | Path to the client private key file           | `./tls-certs/client.key.pem`  | `/etc/ssl/private/client.key.pem` |
+| `SERVER_ADDRESS`         | Address and port of the server to connect to  | `localhost:4443`              | `example.com:443`                 |
+| `SERVER_NAME`            | Server name for TLS SNI                       | `localhost`                   | `example.com`                     |
+| `FIDO_MODE`              | FIDO mode: "registration" or "authentication" | `registration`                | `authentication`                  |
+| `FIDO_USER_NAME`         | FIDO username for authentication/registration | `user`                        | `alice`                           |
+| `FIDO_USER_DISPLAY_NAME` | FIDO display name                             | `User`                        | `Alice Smith`                     |
+| `FIDO_DEVICE_PIN`        | FIDO PIN for authentication                   | `1234`                        | `5678`                            |
+| `FIDO_TICKET`            | FIDO ticket as comma-separated bytes          | `4,3,2,1`                     | `1,2,3,4`                         |
 
 
 To run the client:
