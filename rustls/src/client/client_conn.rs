@@ -639,7 +639,6 @@ mod connection {
     use pki_types::ServerName;
 
     use super::ClientConnectionData;
-
     use crate::ClientConfig;
     use crate::client::EchStatus;
     use crate::common_state::Protocol;

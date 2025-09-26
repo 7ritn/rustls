@@ -407,28 +407,7 @@ fn emit_client_hello_for_retry(
 
     if let Some(fido) = config.fido.as_ref()
     {
-        let indication;
-        match fido.mode() {
-            FidoMode::Registration => {
-                let registration_state = fido.current_reg_state();
-                match registration_state {
-                    None => {
-                        // Pre Registration
-                        debug!("Fido: Indicating PreRegistration");
-                        indication = FidoIndication::PreRegistration(FidoPreRegistrationIndication::new())
-                    }
-                    Some(reg_state) => {
-                        // Registration
-                        debug!("Fido: Indicating Registration");
-                        indication = FidoIndication::Registration(FidoRegistrationIndication::new(&reg_state.ephem_user_id))
-                    }
-                }
-            }
-            FidoMode::Authentication => {
-                debug!("Fido: Indicating Authentication");
-                indication = FidoIndication::Authentication(FidoAuthenticationIndication::new());
-            }
-        }
+        let indication = fido.create_indication();
         exts.push(ClientExtension::FidoIndication(indication));
     }
 

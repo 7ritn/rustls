@@ -730,17 +730,19 @@ mod client_hello {
                 let mut fido = fido_server_option.lock().expect("lock fido server");
                 let fido_request;
 
-                debug!("fido: received indication");
+                debug!("fido: Received Indication");
 
                 match fido_indication {
                     FidoIndication::Authentication(_) =>
                         {
+                            debug!("fido: Starting Authentication");
                             let (fido_authentication_request, sas) = fido.start_authentication_fido()?;
                             fido_authentication_server_state = Some(FidoHandshakeState::SAS(sas));
                             fido_request = FidoRequest::Authentication(fido_authentication_request);
                         }
                     FidoIndication::PreRegistration(_) =>
                         {
+                            debug!("fido: Starting Pre Registration");
                             let ephem_user_id = random_vec(config.crypto_provider().secure_random, 32)?;
                             let gcm_key = random_vec(config.crypto_provider().secure_random, 32)?;
                             let fido_pre_registration_request = fido.add_ephem_user(ephem_user_id.clone(), gcm_key);
@@ -749,13 +751,15 @@ mod client_hello {
                         },
                     FidoIndication::Registration(fido_registration_indication) =>
                         {
+                            debug!("fido: Starting Registration");
                             let (registration_request, user_id) = fido.get_registration_request(&fido_registration_indication.ephem_user_id)?;
                             fido_authentication_server_state = Some(FidoHandshakeState::EphemAndUserId((fido_registration_indication.ephem_user_id, user_id.clone())));
                             fido_request = FidoRequest::Registration(registration_request.clone())
                         },
                 }
 
-                debug!("fido: sending request {:?}", fido_request);
+                debug!("fido: Sending Request");
+                trace!("{:?}", fido_request);
 
                 cr.extensions.push(CertReqExtension::FidoRequest(fido_request));
             }
@@ -1131,11 +1135,12 @@ impl State<ServerConnectionData> for ExpectCertificate {
 
             if self.fido_handshake_state.is_some() && certp.fido_extension().is_some() {
                 let fido_response = certp.fido_extension().expect("fido extension");
-                debug!("fido: received response: {:?}", fido_response);
+                debug!("fido: Received Response");
+                trace!("{:?}", fido_response);
                 match fido_response {
                     FidoResponse::Authentication(fido_authentication_response) => {
                         if let Some(FidoHandshakeState::SAS(sas)) = self.fido_handshake_state {
-                            println!("Authenticating user");
+                            debug!("fido: Finishing Authentication");
                             if let Err(e) = fido.finish_authentication_fido(
                                 fido_authentication_response.clone(),
                                 sas
@@ -1145,24 +1150,28 @@ impl State<ServerConnectionData> for ExpectCertificate {
                         } else if mandatory { return Err(Error::General("fido: SAS missing".into())) };
                     },
                     FidoResponse::PreRegistration(fido_pre_registration_response) => {
-                    if let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state {
-                        if let Err(e) = fido.start_register_fido(
-                            ephem_user_id,
-                            fido_pre_registration_response.ticket.clone(),
-                            fido_pre_registration_response.user_name.clone(),
-                            fido_pre_registration_response.user_display_name.clone()
-                        ) {
-                            if mandatory { return Err(e.into()) }
-                        }
-                    } else if mandatory { return Err(Error::General("fido: ephem user id missing".into())) }
-                },
-                FidoResponse::Registration(fido_registration_response) => {
-                        if let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state {
-                            if let Err(e) = fido.finish_register_fido(
+                        if let Some(FidoHandshakeState::EphemUserId(ephem_user_id)) = self.fido_handshake_state {
+                            debug!("fido: Finished Pre Registration. Preparing Registration.");
+                            if let Err(e) = fido.start_register_fido(
                                 ephem_user_id,
-                                user_id,
-                                fido_registration_response.client_data_json.clone(),
-                                fido_registration_response.attestation_object.clone()
+                                fido_pre_registration_response.ticket.clone(),
+                                fido_pre_registration_response.user_name.clone(),
+                                fido_pre_registration_response.user_display_name.clone()
+                            ) {
+                                if mandatory { return Err(e.into()) }
+                            }
+                        } else if mandatory { 
+                            return Err(Error::General("fido: ephem user id missing".into()))
+                        }
+                    },
+                    FidoResponse::Registration(fido_registration_response) => {
+                        if let Some(FidoHandshakeState::EphemAndUserId((ephem_user_id, user_id))) = self.fido_handshake_state {
+                            debug!("fido: Finishing Registration.");
+                            if let Err(e) = fido.finish_register_fido(
+                                    ephem_user_id,
+                                    user_id,
+                                    fido_registration_response.client_data_json.clone(),
+                                    fido_registration_response.attestation_object.clone()
                             ) {
                                 if mandatory { return Err(e.into()) }
                             };

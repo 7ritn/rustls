@@ -25,8 +25,8 @@ use rustls_fido::client::FidoClient;
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-    let cert_file = File::open("/home/triton/Development/rustls/tls-certs/ca.cert.pem").expect("cannot open cert file");
-    //let cert_file = File::open("/home/triton/Development/fidoSSL/test/certs/ca.crt").expect("cannot open cert file");
+    //let cert_file = File::open("/home/triton/Development/rustls/tls-certs/ca.cert.pem").expect("cannot open cert file");
+    let cert_file = File::open("/home/triton/Development/fidoSSL/test/certs/ca.crt").expect("cannot open cert file");
     let mut reader = BufReader::new(cert_file);
 
     // Parse the certificate(s)
@@ -50,11 +50,11 @@ fn main() {
         
     let ticket = vec![4,3,2,1];
 
-    //let address = "127.0.0.1:12345";
-    let address = "localhost:4443";
+    let address = "127.0.0.1:12345";
+    //let address = "localhost:4443";
 
-    //let servername = "demo.fido2.tls.edu";
-    let servername = "localhost";
+    let servername = "demo.fido2.tls.edu";
+    //let servername = "localhost";
 
     let mode = FidoMode::Authentication;
     let fido = FidoClient::new(

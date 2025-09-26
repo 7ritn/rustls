@@ -56,7 +56,7 @@ fn handle_client(stream: TcpStream, config: Arc<ServerConfig>) -> Result<(), Box
 }
 
 fn main() -> Result<(), Box<dyn StdError>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     let cert_file = "/home/triton/Development/rustls/tls-certs/server.cert.pem";
     let private_key_file = "/home/triton/Development/rustls/tls-certs/server.key.pem";

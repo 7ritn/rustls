@@ -899,7 +899,7 @@ impl State<ClientConnectionData> for ExpectCertificateRequest {
             if let Some(fido) = self.config.fido.as_ref() {
                 debug!("FIDO request received: {:?}", fido_request);
                 let server_cert = match &cx.common.peer_certificates() {
-                    Some(certs) => certs.get(0),
+                    Some(certs) => certs.first(),
                     None => None
                 };
                 match fido_request {
