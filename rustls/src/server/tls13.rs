@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use std::println;
 pub(super) use client_hello::CompleteClientHelloHandling;
 use pki_types::{CertificateDer, UnixTime};
 use subtle::ConstantTimeEq;

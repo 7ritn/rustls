@@ -13,6 +13,7 @@ We recommend new users start by looking at `simpleclient.rs` and `simpleserver.r
 * `unbuffered-client.rs` - shows an advanced example of using Rustls lower-level APIs to implement a client that does not buffer any data inside Rustls.
 * `unbuffered-async-client.rs` - shows an advanced example of using Rustls lower-level APIs to implement a client that does not buffer any data inside Rustls, and that processes TLS events asynchronously.
 * `ech-client.rs` - shows how to configure Rustls to use encrypted client hello (ECH), including fetching an ECH config list with DNS-over-HTTPS.
+* `fidoclient.rs` - shows a client configuration that uses client-authentication using FIDO2. requires the matching fidoserver.rs to work
 
 ## Server examples
 
@@ -21,6 +22,7 @@ We recommend new users start by looking at `simpleclient.rs` and `simpleserver.r
 * `simple_0rtt_server.rs` - shows how to make a TLS1.3 that accepts multiple connections and prints early 0RTT data.
 * `server_acceptor.rs` - shows how to use the `Acceptor` API to create a server that generates a unique `ServerConfig` for each client. This example also shows how to use client authentication, CRL revocation checking, and uses `rcgen` to generate its own certificates.
 * `unbuffered-server.rs` - shows an advanced example of using Rustls lower-level APIs to implement a server that does not buffer any data inside Rustls.
+* `fidoserver.rs` - shows a server configuration that uses client-authentication using FIDO2. requires the matching fidoclient.rs to work
 
 ## Client-Server examples
 

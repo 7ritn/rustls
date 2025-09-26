@@ -23,8 +23,6 @@ use crate::conn::ConnectionRandoms;
 use crate::crypto::{ActiveKeyExchange, KeyExchangeAlgorithm};
 use crate::enums::{AlertDescription, CipherSuite, ContentType, HandshakeType, ProtocolVersion};
 use crate::error::{Error, PeerIncompatible, PeerMisbehaved};
-use rustls_fido::enums::FidoMode;
-use rustls_fido::messages::{FidoAuthenticationIndication, FidoIndication, FidoPreRegistrationIndication, FidoRegistrationIndication};
 use crate::hash_hs::HandshakeHashBuffer;
 use crate::log::{debug, trace};
 use crate::msgs::base::Payload;

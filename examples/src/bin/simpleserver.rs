@@ -7,104 +7,47 @@
 //! Note that `unwrap()` is used to deal with networking errors; this is not something
 //! that is sensible outside of example code.
 
+use std::env;
 use std::error::Error as StdError;
-use std::fs::File;
-use std::io::{BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{Read, Write};
+use std::net::TcpListener;
 use std::sync::Arc;
+
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-use rustls::{RootCertStore, ServerConfig, ServerConnection, StreamOwned};
-use rustls_pemfile::certs;
-use rustls_fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
-use rustls_fido::server::FidoServer;
-use rustls::server::WebPkiClientVerifier;
-
-fn load_ca_certs() -> RootCertStore {
-    let mut reader = BufReader::new(File::open("./tls-certs/ca.cert.pem").expect("cannot open CA file"));
-    let certs = certs(&mut reader)
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    let mut store = RootCertStore::empty();
-    for cert in certs {
-        store.add(cert).unwrap();
-    }
-    store
-}
-
-
-fn handle_client(stream: TcpStream, config: Arc<ServerConfig>) -> Result<(), Box<dyn std::error::Error>> {
-    stream.set_nonblocking(false)?; // Optional: force blocking mode
-
-    let conn = ServerConnection::new(config)?;
-    let mut tls = StreamOwned::new(conn, stream);
-
-    // Complete TLS handshake
-    while tls.conn.is_handshaking() {
-        tls.conn.complete_io(&mut tls.sock)?;
-    }
-
-    // Example: send a message
-    tls.write_all(b"Hello from the server")?;
-    tls.flush()?;
-
-    // Clean shutdown
-    tls.conn.send_close_notify();
-    let _ = tls.conn.complete_io(&mut tls.sock);
-
-    Ok(())
-}
 
 fn main() -> Result<(), Box<dyn StdError>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
-
-    let cert_file = "./tls-certs/server.cert.pem";
-    let private_key_file = "./tls-certs/server.key.pem";
+    let mut args = env::args();
+    args.next();
+    let cert_file = args
+        .next()
+        .expect("missing certificate file argument");
+    let private_key_file = args
+        .next()
+        .expect("missing private key file argument");
 
     let certs = CertificateDer::pem_file_iter(cert_file)
         .unwrap()
         .map(|cert| cert.unwrap())
         .collect();
     let private_key = PrivateKeyDer::from_pem_file(private_key_file).unwrap();
-
-    // In your main():
-    let ca_store = load_ca_certs();
-    let verifier = WebPkiClientVerifier::builder(ca_store.into()).allow_unauthenticated().build().expect("failed to build client verifier");
-
-    let fido_config = FidoServer::new(
-        "localhost".to_string(),
-        "localhost".to_string(),
-        FidoPolicy::Discouraged,
-        FidoPolicy::Required,
-        FidoAuthenticatorAttachment::CrossPlatform,
-        60000,
-        vec![4, 3, 2, 1],
-        true,
-        "./fido.db3"
-    );
-
-    let config = ServerConfig::builder()
-        .with_client_cert_verifier(verifier)
-        .with_fido(fido_config)
+    let config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_no_fido()
         .with_single_cert(certs, private_key)?;
 
-    let listener = TcpListener::bind("[::]:4443")?;
-    let config = Arc::new(config);
+    let listener = TcpListener::bind(format!("[::]:{}", 4443)).unwrap();
+    let (mut stream, _) = listener.accept()?;
 
-    println!("Server listening on port 4443");
+    let mut conn = rustls::ServerConnection::new(Arc::new(config))?;
+    conn.complete_io(&mut stream)?;
 
-    for stream_result in listener.incoming() {
-        match stream_result {
-            Ok(stream) => {
-                if let Err(e) = handle_client(stream, Arc::clone(&config)) {
-                    eprintln!("Error handling client: {}", e);
-                }
-            }
-            Err(e) => {
-                eprintln!("Connection failed: {}", e);
-            }
-        }
-    }
+    conn.writer()
+        .write_all(b"Hello from the server")?;
+    conn.complete_io(&mut stream)?;
+    let mut buf = [0; 64];
+    let len = conn.reader().read(&mut buf)?;
+    println!("Received message from client: {:?}", &buf[..len]);
 
     Ok(())
 }
