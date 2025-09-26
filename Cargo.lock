@@ -2918,6 +2918,7 @@ dependencies = [
 [[package]]
 name = "rustls-fido"
 version = "0.1.0"
+source = "git+https://github.com/7ritn/rustls-fido.git#7f01fcc2b5145791843357631aa84bf90daeaf36"
 dependencies = [
  "authenticator",
  "aws-lc-rs",
