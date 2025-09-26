@@ -13,20 +13,26 @@ use rustls_fido::enums::FidoMode;
 use rustls_fido::client::FidoClient;
 use std::env;
 
+macro_rules! env_var_or_default {
+    ($name:expr, $default:expr) => {
+        std::env::var($name).unwrap_or_else(|_| $default.to_string())
+    };
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     // Read environment variables
-    let ca_cert_path = env::var("CA_CERT_PATH").unwrap_or_else(|_| "./tls-certs/ca.cert.pem".to_string());
-    let client_cert_path = env::var("CLIENT_CERT_PATH").unwrap_or_else(|_| "./tls-certs/client.cert.pem".to_string());
-    let client_key_path = env::var("CLIENT_KEY_PATH").unwrap_or_else(|_| "./tls-certs/client.key.pem".to_string());
-    let address = env::var("SERVER_ADDRESS").unwrap_or_else(|_| "localhost:4443".to_string());
-    let servername = env::var("SERVER_NAME").unwrap_or_else(|_| "localhost".to_string());
-    let mut fido_mode = env::var("FIDO_MODE").unwrap_or_else(|_| "registration".to_string());
-    let fido_username = env::var("FIDO_USERNAME").unwrap_or_else(|_| "user".to_string());
-    let fido_displayname = env::var("FIDO_DISPLAYNAME").unwrap_or_else(|_| "user".to_string());
-    let fido_pin = env::var("FIDO_PIN").unwrap_or_else(|_| "1234".to_string());
-    let fido_ticket = env::var("FIDO_TICKET").unwrap_or_else(|_| "4,3,2,1".to_string());
+    let ca_cert_path = env_var_or_default!("CA_CERT_PATH", "./tls-certs/ca.cert.pem");
+    let client_cert_path = env_var_or_default!("CLIENT_CERT_PATH", "./tls-certs/client.cert.pem");
+    let client_key_path = env_var_or_default!("CLIENT_KEY_PATH", "./tls-certs/client.key.pem");
+    let address = env_var_or_default!("SERVER_ADDRESS", "localhost:4443");
+    let servername = env_var_or_default!("SERVER_NAME", "localhost");
+    let mut fido_mode = env_var_or_default!("FIDO_MODE", "registration");
+    let fido_username = env_var_or_default!("FIDO_USER_NAME", "user");
+    let fido_displayname = env_var_or_default!("FIDO_DISPLAY_NAME", "User");
+    let fido_pin = env_var_or_default!("FIDO_DEVICE_PIN", "1234");
+    let fido_ticket = env_var_or_default!("FIDO_TICKET", "4,3,2,1");
 
     // Read command line FIDO mode
     let args: Vec<String> = env::args().collect();

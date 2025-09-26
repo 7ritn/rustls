@@ -12,6 +12,12 @@ use rustls_fido::enums::{FidoAuthenticatorAttachment, FidoPolicy};
 use rustls_fido::server::FidoServer;
 use rustls::server::WebPkiClientVerifier;
 
+macro_rules! env_var_or_default {
+    ($name:expr, $default:expr) => {
+        std::env::var($name).unwrap_or_else(|_| $default.to_string())
+    };
+}
+
 fn load_ca_certs(ca_cert_path: &str) -> RootCertStore {
     let mut reader = BufReader::new(File::open(ca_cert_path).expect("cannot open CA file"));
     let certs = certs(&mut reader)
@@ -48,20 +54,19 @@ fn main() -> Result<(), Box<dyn StdError>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
 
     // Read environment variables
-    let ca_cert_path = env::var("CA_CERT_PATH").unwrap_or_else(|_| "./tls-certs/ca.cert.pem".to_string());
-    let server_cert_path = env::var("SERVER_CERT_PATH").unwrap_or_else(|_| "./tls-certs/server.cert.pem".to_string());
-    let server_key_path = env::var("SERVER_KEY_PATH").unwrap_or_else(|_| "./tls-certs/server.key.pem".to_string());
-    let server_address = env::var("SERVER_ADDRESS").unwrap_or_else(|_| "[::]:4443".to_string());
-    let fido_rp_id = env::var("FIDO_RP_ID").unwrap_or_else(|_| "localhost".to_string());
-    let fido_rp_name = env::var("FIDO_RP_NAME").unwrap_or_else(|_| "localhost".to_string());
-    let fido_user_verification = env::var("FIDO_USER_VERIFICATION").unwrap_or_else(|_| "preferred".to_string());
-    let fido_authenticator_attachment = env::var("FIDO_AUTHENTICATOR_ATTACHMENT").unwrap_or_else(|_| "CrossPlatform".to_string());
-    let fido_timeout = env::var("FIDO_TIMEOUT").unwrap_or_else(|_| "60000".to_string()).parse::<u32>().unwrap();
-    let fido_ticket = env::var("FIDO_TICKET").unwrap_or_else(|_| "4,3,2,1".to_string());
-    let fido_mandatory = env::var("FIDO_DEBUG").unwrap_or_else(|_| "true".to_string()).parse::<bool>().unwrap();
-    let fido_db_path = env::var("FIDO_DB_PATH").unwrap_or_else(|_| "./fido.db3".to_string());
+    let ca_cert_path = env_var_or_default!("CA_CERT_PATH", "./tls-certs/ca.cert.pem");
+    let server_cert_path = env_var_or_default!("SERVER_CERT_PATH", "./tls-certs/server.cert.pem");
+    let server_key_path = env_var_or_default!("SERVER_KEY_PATH", "./tls-certs/server.key.pem");
+    let server_address = env_var_or_default!("SERVER_ADDRESS", "[::]:4443");
+    let fido_rp_id = env_var_or_default!("FIDO_RP_ID", "localhost");
+    let fido_rp_name = env_var_or_default!("FIDO_RP_NAME", "localhost");
+    let fido_user_verification = env_var_or_default!("FIDO_USER_VERIFICATION", "preferred");
+    let fido_authenticator_attachment = env_var_or_default!("FIDO_AUTHENTICATOR_ATTACHMENT", "CrossPlatform");
+    let fido_ticket = env_var_or_default!("FIDO_TICKET", "4,3,2,1");
+    let fido_timeout = env_var_or_default!("FIDO_TIMEOUT", "60000").parse::<u32>().unwrap();
+    let fido_mandatory = env_var_or_default!("FIDO_DEBUG", "true").parse::<bool>().unwrap();
+    let fido_db_path = env_var_or_default!("FIDO_DB_PATH", "./fido.db3");
 
-    // Parse FIDO ticket
     let ticket: Vec<u8> = fido_ticket.split(',').map(|s| s.trim().parse().unwrap()).collect();
 
     // Parse FIDO user verification policy
